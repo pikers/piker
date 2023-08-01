@@ -386,11 +386,17 @@ def open_ledger_dfs(
             #     allow_reload=True,
             # )
 
-            yield ledger_to_dfs(ledger), ledger
+        yield ledger_to_dfs(ledger), ledger
 
 
 def ledger_to_dfs(
     ledger: TransactionLedger,
+
+    # include transaction cost in breakeven price
+    # and presume the worst case of the same cost
+    # to exit this transaction (even though in reality
+    # it will be dynamic based on exit stratetgy).
+    cost_scalar: float = 1,
 
 ) -> dict[str, pl.DataFrame]:
 
@@ -462,12 +468,16 @@ def ledger_to_dfs(
             # the market) to acquire the dst asset, PER txn.
             # when this value is -ve (i.e. a sell operation) then
             # the amount sent is actually "returned".
-            (pl.col('price') * pl.col('size')).alias('dst_bot'),
+            (
+                (pl.col('price') * pl.col('size'))
+                +
+                pl.col('cost')
+            ).alias('dst_bot'),
 
         ]).with_columns([
 
             # rolling balance in src asset units
-            (pl.cumsum('dst_bot') * -1).alias('src_balance'),
+            (pl.col('dst_bot').cumsum() * -1).alias('src_balance'),
 
             # "position operation type" in terms of increasing the
             # amount in the dst asset (entering) or decreasing the
@@ -506,7 +516,7 @@ def ledger_to_dfs(
         ]).select([
             pl.exclude([
                 'tid',
-                'dt',
+                # 'dt',
                 'expiry',
                 'bs_mktid',
                 'etype',
@@ -518,114 +528,137 @@ def ledger_to_dfs(
         last_cumsize: float = 0
         last_ledger_pnl: float = 0
         last_pos_pnl: float = 0
-        last_is_enter: bool = False
+        # last_is_enter: bool = False  # TODO: drop right?
 
         # imperatively compute the PPU (price per unit) and BEP
         # (break even price) iteratively over the ledger, oriented
-        # to each position state.
+        # around each position state: a state of split balances in
+        # > 1 asset.
         for i, row in enumerate(df.iter_rows(named=True)):
+
             cumsize: float = row['cumsize']
             is_enter: bool = row['is_enter']
+            price: float = row['price']
+            size: float = row['size']
 
             # ALWAYS reset per-position cum PnL
             if last_cumsize == 0:
                 last_pos_pnl: float = 0
 
-            # a "position size INCREASING" transaction which "makes
-            # larger", in src asset unit terms, the trade's
-            # side-size of the destination asset:
+            # the profit is ALWAYS decreased, aka made a "loss"
+            # by the constant fee charged by the txn provider!
+            # TODO: support exit txn virtual cost which we
+            # resolve on exit txns incrementally?
+            pnl: float = -1 * row['cost']
+
+            # a "position size INCREASING" or ENTER transaction
+            # which "makes larger", in src asset unit terms, the
+            # trade's side-size of the destination asset:
             # - "buying" (more) units of the dst asset
             # - "selling" (more short) units of the dst asset
             if is_enter:
 
+                # a cumulative mean of the price-per-unit acquired
+                # in the destination asset:
+                # https://en.wikipedia.org/wiki/Moving_average#Cumulative_average
+                # You could also think of this measure more
+                # generally as an exponential mean with `alpha
+                # = 1/N` where `N` is the current number of txns
+                # included in the "position" defining set:
+                # https://en.wikipedia.org/wiki/Exponential_smoothing
                 ppu: float = (
                     (
                         (last_ppu * last_cumsize)
                         +
-                        (row['price'] * row['size'])
+                        (price * size)
                     ) /
                     cumsize
                 )
 
-                pos_bep: float = ppu
-                # When we "enter more" dst asset units (increase
-                # position state) AFTER having exitted some units
-                # the bep needs to be RECOMPUTED based on new ppu
-                # such that liquidation of the cumsize at the bep
-                # price results in a zero-pnl for the existing
-                # position (since the last one).
-                if (
-                    not last_is_enter
-                    and last_cumsize != 0
-                ):
-
-                    pos_bep: float = (
-                        (
-                            (ppu * cumsize)
-                            -
-                            last_pos_pnl
-                        )
-                        /
-                        cumsize
-                    )
-
-                df[i, 'ledger_bep'] = df[i, 'pos_bep'] = pos_bep
-
-            # a "position size DECREASING" transaction which "makes
-            # smaller" the trade's side-size of the destination
-            # asset:
+            # a "position size DECREASING" or EXIT transaction
+            # which "makes smaller" the trade's side-size of the
+            # destination asset:
             # - selling previously bought units of the dst asset
             #   (aka 'closing' a long position).
             # - buying previously borrowed and sold (short) units
             #   of the dst asset (aka 'covering'/'closing' a short
             #   position).
             else:
+                # only changes on position size increasing txns
+                ppu: float = last_ppu
 
-                pnl = df[i, 'per_exit_pnl'] = (
-                    (last_ppu - row['price'])
-                    *
-                    row['size']
+                # include the per-txn profit or loss given we are
+                # "closing" the position with this txn.
+                pnl += (last_ppu - price) * size
+
+            # cumulative PnLs per txn
+            last_ledger_pnl = (
+                last_ledger_pnl + pnl
+            )
+            last_pos_pnl = df[i, 'cum_pos_pnl'] = (
+                last_pos_pnl + pnl
+            )
+
+            if cumsize == 0:
+                last_ppu = ppu = 0
+
+            # compute the "break even price" that
+            # when the remaining cumsize is liquidated at
+            # this price the net-pnl on the current position
+            # will result in ZERO pnl from open to close B)
+            if (
+                abs(cumsize) > 0  # non-exit-to-zero position txn
+            ):
+
+                ledger_bep = pos_bep = ppu
+
+                # TODO: now that this
+                # recalc-bep-on-enters-based-on-new-ppu was
+                # factored out of the `is_enter` block above we can
+                # drop this if condition right?
+                #
+                # When we "enter more" dst asset units (aka
+                # increase position state) AFTER having exited some
+                # units (aka decreasing the pos size some) the bep
+                # needs to be RECOMPUTED based on new ppu such that
+                # liquidation of the cumsize at the bep price
+                # results in a zero-pnl for the existing position
+                # (since the last one).
+                # if (
+                #     not last_is_enter
+                #     and last_cumsize != 0
+                # ):
+
+                ledger_bep: float = (
+                    (
+                        (ppu * cumsize)
+                        -
+                        (last_ledger_pnl * copysign(1, cumsize))
+                    ) / cumsize
                 )
 
-                last_ledger_pnl = df[i, 'cum_ledger_pnl'] = last_ledger_pnl + pnl
+                # for position lifetime BEP we never can have
+                # a valid value once the position is "closed"
+                # / full exitted Bo
+                pos_bep: float = (
+                    (
+                        (ppu * cumsize)
+                        -
+                        (last_pos_pnl * copysign(1, cumsize))
+                    ) / cumsize
+                )
 
-                last_pos_pnl = df[i, 'cum_pos_pnl'] = last_pos_pnl + pnl
-
-                if cumsize == 0:
-                    ppu: float = 0
-                    last_ppu: float = 0
-                else:
-                    ppu: float = last_ppu
-
-
-                if abs(cumsize) > 0:
-                    # compute the "break even price" that
-                    # when the remaining cumsize is liquidated at
-                    # this price the net-pnl on the current position
-                    # will result in ZERO pnl from open to close B)
-                    ledger_bep: float = (
-                        (
-                            (ppu * cumsize)
-                            -
-                            last_ledger_pnl
-                        ) / cumsize
-                    )
-                    df[i, 'ledger_bep'] = ledger_bep
-
-                    pos_bep: float = (
-                        (
-                            (ppu * cumsize)
-                            -
-                            last_pos_pnl
-                        ) / cumsize
-                    )
-                    df[i, 'pos_bep'] = pos_bep
-
+            # inject DF row with all values
             df[i, 'pos_ppu'] = ppu
+            df[i, 'per_exit_pnl'] = pnl
+            df[i, 'cum_pos_pnl'] = last_pos_pnl
+            df[i, 'pos_bep'] = pos_bep
+            df[i, 'cum_ledger_pnl'] = last_ledger_pnl
+            df[i, 'ledger_bep'] = ledger_bep
 
             # keep backrefs to suffice reccurence relation
             last_ppu: float = ppu
             last_cumsize: float = cumsize
-            last_is_enter: bool = is_enter
+            # last_is_enter: bool = is_enter  # TODO: drop right?
 
     return dfs
