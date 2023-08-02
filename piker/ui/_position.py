@@ -850,7 +850,10 @@ class PositionTracker:
         Return handle to pp side pane form.
 
         '''
-        return self.chart.linked.godwidget.pp_pane
+        chart: ChartPlotWidget = next(
+            iter(self.nav.charts.values())
+        )
+        return chart.linked.godwidget.pp_pane
 
     def update_from_pp(
         self,
