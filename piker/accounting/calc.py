@@ -392,12 +392,6 @@ def open_ledger_dfs(
 def ledger_to_dfs(
     ledger: TransactionLedger,
 
-    # include transaction cost in breakeven price
-    # and presume the worst case of the same cost
-    # to exit this transaction (even though in reality
-    # it will be dynamic based on exit stratetgy).
-    cost_scalar: float = 1,
-
 ) -> dict[str, pl.DataFrame]:
 
     txns: dict[str, Transaction] = ledger.to_txns()
@@ -471,7 +465,7 @@ def ledger_to_dfs(
             (
                 (pl.col('price') * pl.col('size'))
                 +
-                pl.col('cost')
+                (pl.col('cost')) # * pl.col('size').sign())
             ).alias('dst_bot'),
 
         ]).with_columns([
@@ -499,8 +493,10 @@ def ledger_to_dfs(
 
         ]).with_columns([
 
+            pl.lit(0, dtype=pl.Utf8).alias('virt_cost'),
+            pl.lit(0, dtype=pl.Float64).alias('applied_cost'),
             pl.lit(0, dtype=pl.Float64).alias('pos_ppu'),
-            pl.lit(0, dtype=pl.Float64).alias('per_exit_pnl'),
+            pl.lit(0, dtype=pl.Float64).alias('per_txn_pnl'),
             pl.lit(0, dtype=pl.Float64).alias('cum_pos_pnl'),
             pl.lit(0, dtype=pl.Float64).alias('pos_bep'),
             pl.lit(0, dtype=pl.Float64).alias('cum_ledger_pnl'),
@@ -510,7 +506,7 @@ def ledger_to_dfs(
             # could try using embedded lists to track which txns
             # are part of which ppu / bep calcs? Not sure this will
             # look any better nor be any more performant though xD
-            # pl.lit([[0]], dtype=pl.List).alias('list'),
+            # pl.lit([[0]], dtype=pl.List(pl.Float64)).alias('list'),
 
         # choose fields to emit for accounting puposes
         ]).select([
@@ -528,7 +524,7 @@ def ledger_to_dfs(
         last_cumsize: float = 0
         last_ledger_pnl: float = 0
         last_pos_pnl: float = 0
-        # last_is_enter: bool = False  # TODO: drop right?
+        virt_costs: list[float, float] = [0., 0.]
 
         # imperatively compute the PPU (price per unit) and BEP
         # (break even price) iteratively over the ledger, oriented
@@ -541,15 +537,16 @@ def ledger_to_dfs(
             price: float = row['price']
             size: float = row['size']
 
+            # the profit is ALWAYS decreased, aka made a "loss"
+            # by the constant fee charged by the txn provider!
+            # see below in final PnL calculation and row element
+            # set.
+            txn_cost: float = row['cost']
+            pnl: float = 0
+
             # ALWAYS reset per-position cum PnL
             if last_cumsize == 0:
                 last_pos_pnl: float = 0
-
-            # the profit is ALWAYS decreased, aka made a "loss"
-            # by the constant fee charged by the txn provider!
-            # TODO: support exit txn virtual cost which we
-            # resolve on exit txns incrementally?
-            pnl: float = -1 * row['cost']
 
             # a "position size INCREASING" or ENTER transaction
             # which "makes larger", in src asset unit terms, the
@@ -557,6 +554,29 @@ def ledger_to_dfs(
             # - "buying" (more) units of the dst asset
             # - "selling" (more short) units of the dst asset
             if is_enter:
+
+                # Naively include transaction cost in breakeven
+                # price and presume the worst case of the
+                # exact-same-cost-to-exit this transaction's worth
+                # of size even though in reality it will be dynamic
+                # based on exit strategy, price, liquidity, etc..
+                virt_cost: float = txn_cost
+
+                # cpu: float = cost / size
+                # cummean of the cost-per-unit used for modelling
+                # a projected future exit cost which we immediately
+                # include in the costs incorporated to BEP on enters
+                last_cum_costs_size, last_cpu = virt_costs
+                cum_costs_size: float = last_cum_costs_size + abs(size)
+                cumcpu = (
+                    (last_cpu * last_cum_costs_size)
+                    +
+                    txn_cost
+                ) / cum_costs_size
+                virt_costs = [cum_costs_size, cumcpu]
+
+                txn_cost = txn_cost + virt_cost
+                df[i, 'virt_cost'] = f'{-virt_cost} FROM {cumcpu}@{cum_costs_size}'
 
                 # a cumulative mean of the price-per-unit acquired
                 # in the destination asset:
@@ -587,16 +607,44 @@ def ledger_to_dfs(
                 # only changes on position size increasing txns
                 ppu: float = last_ppu
 
-                # include the per-txn profit or loss given we are
-                # "closing" the position with this txn.
-                pnl += (last_ppu - price) * size
+                # UNWIND IMPLIED COSTS FROM ENTRIES
+                # => Reverse the virtual/modelled (2x predicted) txn
+                # cost that was included in the least-recently
+                # entered txn that is still part of the current CSi
+                # set.
+                # => we look up the cost-per-unit cumsum and apply
+                # if over the current txn size (by multiplication)
+                # and then reverse that previusly applied cost on
+                # the txn_cost for this record.
+                #
+                # NOTE: current "model" is just to previously assumed 2x
+                # the txn cost for a matching enter-txn's
+                # cost-per-unit; we then immediately reverse this
+                # prediction and apply the real cost received here.
+                last_cum_costs_size, last_cpu = virt_costs
+                prev_virt_cost: float = last_cpu * abs(size)
+                txn_cost: float = txn_cost - prev_virt_cost  # +ve thus a "reversal"
+                cum_costs_size: float = last_cum_costs_size - abs(size)
+                virt_costs = [cum_costs_size, last_cpu]
+
+                df[i, 'virt_cost'] = (
+                    f'{-prev_virt_cost} FROM {last_cpu}@{cum_costs_size}'
+                )
+
+                # the per-txn profit or loss (PnL) given we are
+                # (partially) "closing"/"exiting" the position via
+                # this txn.
+                pnl: float = (last_ppu - price) * size
+
+            # always subtract txn cost from total txn pnl
+            txn_pnl: float = pnl - txn_cost
 
             # cumulative PnLs per txn
             last_ledger_pnl = (
-                last_ledger_pnl + pnl
+                last_ledger_pnl + txn_pnl
             )
             last_pos_pnl = df[i, 'cum_pos_pnl'] = (
-                last_pos_pnl + pnl
+                last_pos_pnl + txn_pnl
             )
 
             if cumsize == 0:
@@ -638,7 +686,8 @@ def ledger_to_dfs(
 
             # inject DF row with all values
             df[i, 'pos_ppu'] = ppu
-            df[i, 'per_exit_pnl'] = pnl
+            df[i, 'per_txn_pnl'] = txn_pnl
+            df[i, 'applied_cost'] = -txn_cost
             df[i, 'cum_pos_pnl'] = last_pos_pnl
             df[i, 'pos_bep'] = pos_bep
             df[i, 'cum_ledger_pnl'] = last_ledger_pnl
