@@ -7,6 +7,7 @@
 '''
 from pathlib import Path
 
+import pytest
 from piker import config
 from piker.accounting import (
     Account,
@@ -44,9 +45,18 @@ def test_account_file_default_empty(
     assert path.parent.name == 'accounting'
 
 
-def test_paper_ledger_position_calcs():
-    broker: str = 'binance'
-    acnt_name: str = 'paper'
+@pytest.mark.parametrize(
+    'fq_acnt',
+    [
+        ('binance', 'paper'),
+    ],
+)
+def test_paper_ledger_position_calcs(
+    fq_acnt: tuple[str, str],
+):
+    broker: str
+    acnt_name: str
+    broker, acnt_name = fq_acnt
 
     accounts_path: Path = config.repodir() / 'tests' / '_inputs'
 
