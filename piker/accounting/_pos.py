@@ -38,6 +38,7 @@ from pendulum import (
     datetime,
     now,
 )
+import polars as pl
 import tomlkit
 
 from ._ledger import (
@@ -143,6 +144,8 @@ class Position(Struct):
     # trade was opened.?
     # def bep() -> float:
     #     ...
+    def clears_df(self) -> pl.DataFrame:
+        ...
 
     def clearsitems(self) -> list[(str, dict)]:
         return ppu(
@@ -435,11 +438,6 @@ class Position(Struct):
             self.calc_size(),
             ndigits=self.mkt.size_tick_digits,
         )
-
-    @property
-    def size(self) -> float:
-        log.warning('`Position.size` is deprecated, use `.cumsize`')
-        return self.cumsize
 
     # TODO: once we have an `.events` table with diff
     # mkt event types..?
