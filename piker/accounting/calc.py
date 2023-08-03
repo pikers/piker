@@ -493,7 +493,7 @@ def ledger_to_dfs(
 
         ]).with_columns([
 
-            pl.lit(0, dtype=pl.Utf8).alias('virt_cost'),
+            # pl.lit(0, dtype=pl.Utf8).alias('virt_cost'),
             pl.lit(0, dtype=pl.Float64).alias('applied_cost'),
             pl.lit(0, dtype=pl.Float64).alias('pos_ppu'),
             pl.lit(0, dtype=pl.Float64).alias('per_txn_pnl'),
@@ -516,6 +516,7 @@ def ledger_to_dfs(
                 'expiry',
                 'bs_mktid',
                 'etype',
+                # 'is_enter',
             ]),
         ]).collect()
 
@@ -576,7 +577,7 @@ def ledger_to_dfs(
                 virt_costs = [cum_costs_size, cumcpu]
 
                 txn_cost = txn_cost + virt_cost
-                df[i, 'virt_cost'] = f'{-virt_cost} FROM {cumcpu}@{cum_costs_size}'
+                # df[i, 'virt_cost'] = f'{-virt_cost} FROM {cumcpu}@{cum_costs_size}'
 
                 # a cumulative mean of the price-per-unit acquired
                 # in the destination asset:
@@ -627,9 +628,9 @@ def ledger_to_dfs(
                 cum_costs_size: float = last_cum_costs_size - abs(size)
                 virt_costs = [cum_costs_size, last_cpu]
 
-                df[i, 'virt_cost'] = (
-                    f'{-prev_virt_cost} FROM {last_cpu}@{cum_costs_size}'
-                )
+                # df[i, 'virt_cost'] = (
+                #     f'{-prev_virt_cost} FROM {last_cpu}@{cum_costs_size}'
+                # )
 
                 # the per-txn profit or loss (PnL) given we are
                 # (partially) "closing"/"exiting" the position via
