@@ -353,38 +353,28 @@ def open_ledger_dfs(
     can update the ledger on exit.
 
     '''
+    from tractor._debug import open_crash_handler
+    with open_crash_handler():
+        if not ledger:
+            import time
+            from ._ledger import open_trade_ledger
 
-    if not ledger:
-        import time
-        from tractor._debug import open_crash_handler
-        from ._ledger import open_trade_ledger
+            now = time.time()
 
-        now = time.time()
-        with (
-            open_crash_handler(),
+            with open_trade_ledger(
+                    brokername,
+                    acctname,
+                    rewrite=True,
+                    allow_from_sync_code=True,
 
-            open_trade_ledger(
-                brokername,
-                acctname,
-                rewrite=True,
-                allow_from_sync_code=True,
+                    # proxied through from caller
+                    **kwargs,
 
-                # proxied through from caller
-                **kwargs,
+            ) as ledger:
+                if not ledger:
+                    raise ValueError(f'No ledger for {acctname}@{brokername} exists?')
 
-            ) as ledger,
-        ):
-            if not ledger:
-                raise ValueError(f'No ledger for {acctname}@{brokername} exists?')
-
-            print(f'LEDGER LOAD TIME: {time.time() - now}')
-
-            # process raw TOML ledger into txns using the
-            # appropriate backend normalizer.
-            # cache: AssetsInfo = get_symcache(
-            #     brokername,
-            #     allow_reload=True,
-            # )
+                print(f'LEDGER LOAD TIME: {time.time() - now}')
 
         yield ledger_to_dfs(ledger), ledger
 
