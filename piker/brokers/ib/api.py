@@ -650,12 +650,14 @@ class Client:
             exch in {'IDEALPRO'}
             or sectype == 'CASH'
         ):
-            # if '/' in symbol:
-            #     currency = ''
-            #     symbol, currency = symbol.split('/')
+            pair: str = symbol
+            if '/' in symbol:
+                src, dst = symbol.split('/')
+                pair: str = ''.join([src, dst])
+
             con = Forex(
-                pair=''.join((symbol, currency)),
-                currency=currency,
+                pair=pair,
+                currency='',
             )
             con.bars_kwargs = {'whatToShow': 'MIDPOINT'}
 
