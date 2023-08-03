@@ -406,6 +406,7 @@ class ChartnPane(QFrame):
         )
         self._sidepane = sidepane
 
+    @property
     def sidepane(self) -> FieldsForm | SearchWidget:
         return self._sidepane
 
@@ -495,7 +496,7 @@ class LinkedSplits(QWidget):
         Set the proportion of space allocated for linked subcharts.
 
         '''
-        ln = len(self.subplots) or 1
+        ln: int = len(self.subplots) or 1
 
         # proportion allocated to consumer subcharts
         if not prop:
@@ -925,6 +926,7 @@ class ChartPlotWidget(pg.PlotWidget):
         self.useOpenGL(use_open_gl)
         self.name = name
         self.data_key = data_key or name
+        self.qframe: ChartnPane | None = None
 
         # scene-local placeholder for book graphics
         # sizing to avoid overlap with data contents

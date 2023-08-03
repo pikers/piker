@@ -283,6 +283,7 @@ async def run_fsp_ui(
             name,
             array_key=array_key,
         )
+        assert chart.qframe
 
         chart.linked.focus()
 
