@@ -299,6 +299,13 @@ def disect(
         # :pray:
         assert not df.is_empty()
 
+        # muck around in pdbp REPL
+        breakpoint()
+
         # TODO: we REALLY need a better console REPL for this
         # kinda thing..
-        breakpoint()
+        # - `xonsh` is an obvious option (and it looks amazin) but
+        # we need to figure out how to embed it better then just:
+        # from xonsh.main import main
+        # main(argv=[])
+        # which will not actually inject the `df` to globals?
