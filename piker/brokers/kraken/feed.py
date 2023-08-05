@@ -46,7 +46,7 @@ from piker.brokers._util import (
     DataThrottle,
     DataUnavailable,
 )
-from piker.data.types import Struct
+from piker.types import Struct
 from piker.data.validate import FeedInit
 from piker.data._web_bs import open_autorecon_ws, NoBsWs
 from .api import (

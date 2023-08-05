@@ -50,8 +50,8 @@ from trio_websocket._impl import (
     ConnectionTimeout,
 )
 
+from piker.types import Struct
 from ._util import log
-from .types import Struct
 
 
 class NoBsWs:

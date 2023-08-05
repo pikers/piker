@@ -26,7 +26,7 @@ from decimal import Decimal
 
 from msgspec import field
 
-from piker.data.types import Struct
+from piker.types import Struct
 
 
 # API endpoint paths by venue / sub-API

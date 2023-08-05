@@ -37,8 +37,8 @@ from pendulum import (
 )
 import tomli_w  # for fast ledger writing
 
-from .. import config
-from ..data.types import Struct
+from piker.types import Struct
+from piker import config
 from ..log import get_logger
 from .calc import (
     iter_by_dt,

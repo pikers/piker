@@ -58,7 +58,7 @@ from piker.accounting import (
     MktPair,
     unpack_fqme,
 )
-from piker.data.types import Struct
+from piker.types import Struct
 from piker.data.validate import FeedInit
 from piker.data._web_bs import (
     open_autorecon_ws,

@@ -30,8 +30,7 @@ import tractor
 import pendulum
 import numpy as np
 
-from ..accounting import MktPair
-from .types import Struct
+from piker.types import Struct
 from ._sharedmem import (
     attach_shm_array,
     ShmArray,
@@ -39,7 +38,7 @@ from ._sharedmem import (
 )
 
 if TYPE_CHECKING:
-    # from pyqtgraph import PlotItem
+    from ..accounting import MktPair
     from .feed import Feed
 
 
@@ -189,6 +188,7 @@ class Flume(Struct):
 
         '''
         mkt_msg = msg.pop('mkt')
+        from ..accounting import MktPair  # cycle otherwise..
         mkt = MktPair.from_msg(mkt_msg)
         return cls(mkt=mkt, **msg)
 

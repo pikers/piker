@@ -33,7 +33,7 @@ from piker.brokers import (
     open_cached_client,
     SymbolNotFound,
 )
-from piker.data.types import Struct
+from piker.types import Struct
 from piker.accounting._mktinfo import (
     Asset,
     MktPair,

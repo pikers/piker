@@ -30,7 +30,7 @@ from tractor.trionics import broadcast_receiver
 from ._util import (
     log,  # sub-sys logger
 )
-from ..data.types import Struct
+from piker.types import Struct
 from ..service import maybe_open_emsd
 from ._messages import (
     Order,

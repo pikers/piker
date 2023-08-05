@@ -58,8 +58,8 @@ from .. import config
 from ..clearing._messages import (
     BrokerdPosition,
 )
-from ..data.types import Struct
-from ..data._symcache import SymbologyCache
+from piker.types import Struct
+from piker.data._symcache import SymbologyCache
 from ..log import get_logger
 
 log = get_logger(__name__)

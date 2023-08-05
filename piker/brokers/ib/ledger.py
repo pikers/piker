@@ -39,8 +39,8 @@ from ib_insync.objects import (
     CommissionReport,
 )
 
+from piker.types import Struct
 from piker.data import (
-    Struct,
     SymbologyCache,
 )
 from piker.accounting import (

@@ -30,7 +30,7 @@ import numpy as np
 import pendulum
 import pyqtgraph as pg
 
-from ..data.types import Struct
+from piker.types import Struct
 from ..data._timeseries import slice_from_time
 from ..log import get_logger
 from ..toolz import Profiler

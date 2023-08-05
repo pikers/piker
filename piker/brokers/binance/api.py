@@ -53,7 +53,7 @@ from piker.accounting import (
     Asset,
     digits_to_dec,
 )
-from piker.data.types import Struct
+from piker.types import Struct
 from piker.data import def_iohlcv_fields
 from piker.brokers import (
     resproc,

@@ -25,7 +25,7 @@ from ..log import (
     get_logger,
     get_console_log,
 )
-from piker.data.types import Struct
+from piker.types import Struct
 subsys: str = 'piker.clearing'
 
 log = get_logger(subsys)

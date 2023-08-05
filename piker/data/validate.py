@@ -18,6 +18,7 @@ Data feed synchronization protocols, init msgs, and general
 data-provider-backend-agnostic schema definitions.
 
 '''
+from __future__ import annotations
 from decimal import Decimal
 from pprint import pformat
 from types import ModuleType
@@ -28,8 +29,8 @@ from typing import (
 
 from msgspec import field
 
-from .types import Struct
-from ..accounting import (
+from piker.types import Struct
+from piker.accounting import (
     Asset,
     MktPair,
 )

@@ -49,6 +49,7 @@ from ib_insync.objects import (
 )
 
 from piker import config
+from piker.types import Struct
 from piker.accounting import (
     Position,
     Transaction,
@@ -62,7 +63,6 @@ from piker.accounting import (
 from piker.data import (
     open_symcache,
     SymbologyCache,
-    Struct,
 )
 from piker.clearing._messages import (
     Order,

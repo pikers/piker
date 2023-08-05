@@ -44,7 +44,7 @@ from ._symcache import (
     open_symcache,
     get_symcache,
 )
-from .types import Struct
+from ._sampling import open_sample_stream
 
 
 __all__: list[str] = [
@@ -60,7 +60,8 @@ __all__: list[str] = [
     'def_iohlcv_fields',
     'def_ohlcv_fields',
     'open_symcache',
+    'open_sample_stream',
     'get_symcache',
     'SymbologyCache',
-    'Struct',
+    'types',
 ]

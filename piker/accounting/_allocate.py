@@ -25,7 +25,7 @@ from bidict import bidict
 
 from ._pos import Position
 from . import MktPair
-from ..data.types import Struct
+from piker.types import Struct
 
 
 _size_units = bidict({

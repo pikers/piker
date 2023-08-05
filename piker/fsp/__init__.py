@@ -22,9 +22,25 @@ from typing import AsyncIterator
 
 import numpy as np
 
+from ._api import (
+    maybe_mk_fsp_shm,
+    Fsp,
+)
 from ._engine import cascade
+from ._volume import (
+    dolla_vlm,
+    flow_rates,
+    tina_vwap,
+)
 
-__all__ = ['cascade']
+__all__: list[str] = [
+    'cascade',
+    'maybe_mk_fsp_shm',
+    'Fsp',
+    'dolla_vlm',
+    'flow_rates',
+    'tina_vwap',
+]
 
 
 async def latency(

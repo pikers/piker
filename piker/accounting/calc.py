@@ -422,7 +422,12 @@ def ledger_to_dfs(
 
     #     fdf = df.filter(pred)
 
-    # break up into a frame per mkt / fqme
+    # TODO: originally i had tried just using a plain ol' groupby
+    # + agg here but the issue was re-inserting to the src frame.
+    # however, learning more about `polars` seems like maybe we can
+    # use `.over()`?
+    # https://pola-rs.github.io/polars/py-polars/html/reference/expressions/api/polars.Expr.over.html#polars.Expr.over
+    # => CURRENTLY we break up into a frame per mkt / fqme
     dfs: dict[str, pl.DataFrame] = ldf.partition_by(
         'bs_mktid',
         as_dict=True,
@@ -435,14 +440,9 @@ def ledger_to_dfs(
 
         # covert to lazy form (since apparently we might need it
         # eventually ...)
-        df = dfs[key]
+        df: pl.DataFrame = dfs[key]
 
-        ldf = df.lazy()
-        # TODO: pass back the current `Position` object loaded from
-        # the account as well? Would provide incentive to do all
-        # this ledger loading inside a new async open_account().
-        # bs_mktid: str = df[0]['bs_mktid']
-        # pos: Position = acnt.pps[bs_mktid]
+        ldf: pl.LazyFrame = df.lazy()
 
         df = dfs[key] = ldf.with_columns([
 
@@ -687,5 +687,11 @@ def ledger_to_dfs(
             # keep backrefs to suffice reccurence relation
             last_ppu: float = ppu
             last_cumsize: float = cumsize
+
+    # TODO?: pass back the current `Position` object loaded from
+    # the account as well? Would provide incentive to do all
+    # this ledger loading inside a new async open_account().
+    # bs_mktid: str = df[0]['bs_mktid']
+    # pos: Position = acnt.pps[bs_mktid]
 
     return dfs

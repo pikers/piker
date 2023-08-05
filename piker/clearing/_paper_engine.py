@@ -40,21 +40,22 @@ import tractor
 
 from piker.brokers import get_brokermod
 from piker.accounting import (
-    Position,
     Account,
+    CostModel,
+    MktPair,
+    Position,
     Transaction,
     TransactionLedger,
-    open_trade_ledger,
     open_account,
-    MktPair,
+    open_trade_ledger,
     unpack_fqme,
 )
 from piker.data import (
-    open_feed,
-    iterticks,
     Struct,
-    open_symcache,
     SymbologyCache,
+    iterticks,
+    open_feed,
+    open_symcache,
 )
 from ._util import (
     log,  # sub-sys logger
@@ -83,6 +84,7 @@ class PaperBoi(Struct):
     ems_trades_stream: tractor.MsgStream
     acnt: Account
     ledger: TransactionLedger
+    fees: CostModel
 
     # map of paper "live" orders which be used
     # to simulate fills based on paper engine settings

@@ -47,11 +47,11 @@ from msgspec import field
 
 from piker.log import get_logger
 from piker import config
+from piker.types import Struct
 from piker.brokers import (
     open_cached_client,
     get_brokermod,
 )
-from .types import Struct
 
 if TYPE_CHECKING:
     from ..accounting import (

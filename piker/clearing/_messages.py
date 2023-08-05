@@ -28,7 +28,7 @@ from typing import (
 
 from msgspec import field
 
-from ..data.types import Struct
+from piker.types import Struct
 
 
 # TODO: a composite for tracking msg flow on 2-legged

@@ -36,7 +36,7 @@ from typing import (
     Literal,
 )
 
-from ..data.types import Struct
+from piker.types import Struct
 
 
 # TODO: make these literals..

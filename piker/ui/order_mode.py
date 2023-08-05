@@ -36,25 +36,29 @@ import tractor
 import trio
 from PyQt5.QtCore import Qt
 
-from .. import config
-from ..accounting import (
+from piker import config
+from piker.accounting import (
     Allocator,
     Position,
     mk_allocator,
     MktPair,
     Symbol,
 )
-from ..clearing._client import (
+from piker.clearing import (
     open_ems,
     OrderClient,
 )
-from ._style import _font
-from ..data.feed import (
+from piker.clearing._messages import (
+    Order,
+    Status,
+    BrokerdPosition,
+)
+from piker.data import (
     Feed,
     Flume,
 )
-from ..data.types import Struct
-from ..log import get_logger
+from piker.types import Struct
+from piker.log import get_logger
 from ._editors import LineEditor, ArrowEditor
 from ._lines import order_line, LevelLine
 from ._position import (
@@ -63,14 +67,7 @@ from ._position import (
 )
 from ._forms import FieldsForm
 from ._window import MultiStatus
-from ..clearing._messages import (
-    # Cancel,
-    Order,
-    Status,
-    # BrokerdOrder,
-    # BrokerdStatus,
-    BrokerdPosition,
-)
+from ._style import _font
 from ._forms import open_form_input_handling
 from ._notify import notify_from_ems_status_msg
 

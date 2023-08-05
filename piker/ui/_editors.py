@@ -42,10 +42,10 @@ from pyqtgraph import functions as fn
 from PyQt5.QtCore import QPointF
 import numpy as np
 
+from piker.types import Struct
 from ._style import hcolor, _font
 from ._lines import LevelLine
 from ..log import get_logger
-from ..data.types import Struct
 
 if TYPE_CHECKING:
     from ._chart import GodWidget

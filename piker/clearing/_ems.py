@@ -51,9 +51,9 @@ from ..accounting._mktinfo import (
     unpack_fqme,
     dec_digits,
 )
+from piker.types import Struct
 from ..ui._notify import notify_from_ems_status_msg
 from ..data import iterticks
-from ..data.types import Struct
 from ._messages import (
     Order,
     Status,

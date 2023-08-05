@@ -64,7 +64,7 @@ from piker._cacheables import (
 )
 from piker.log import get_logger
 from piker.data.validate import FeedInit
-from piker.data.types import Struct
+from piker.types import Struct
 from piker.data import def_iohlcv_fields
 from piker.data._web_bs import (
     open_autorecon_ws,

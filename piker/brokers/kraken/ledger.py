@@ -34,9 +34,9 @@ from piker.accounting import (
     TransactionLedger,
     # MktPair,
 )
+from piker.types import Struct
 from piker.data import (
     SymbologyCache,
-    Struct,
 )
 from .api import (
     log,

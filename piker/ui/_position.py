@@ -30,40 +30,34 @@ from typing import (
     TYPE_CHECKING,
 )
 
-
 # from PyQt5.QtWidgets import QStyle
 # from PyQt5.QtGui import (
 #     QIcon, QPixmap, QColor
 # )
 from pyqtgraph import functions as fn
 
+from piker.calc import (
+    humanize,
+    pnl,
+    puterize,
+)
+from piker.accounting import (
+    Allocator,
+    Position,
+    MktPair,
+)
+from piker.accounting._mktinfo import _derivs
+from piker.types import Struct
+from piker.data import (
+    iterticks,
+    Feed,
+    Flume,
+)
 from ._annotate import LevelMarker
 from ._anchors import (
     pp_tight_and_right,  # wanna keep it straight in the long run
     gpath_pin,
 )
-from ..calc import (
-    humanize,
-    pnl,
-    puterize,
-)
-from ..accounting import (
-    Allocator,
-    MktPair,
-)
-from ..accounting import (
-    Position,
-)
-from ..accounting._mktinfo import (
-    _derivs,
-)
-
-from ..data import (
-    iterticks,
-    Feed,
-    Flume,
-)
-from ..data.types import Struct
 from ._label import Label
 from ._lines import LevelLine, order_line
 from ._style import _font
