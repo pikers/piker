@@ -649,11 +649,12 @@ def ledger_to_dfs(
             if (
                 abs(cumsize) > 0  # non-exit-to-zero position txn
             ):
+                cumsize_sign: float = copysign(1, cumsize)
                 ledger_bep: float = (
                     (
                         (ppu * cumsize)
                         -
-                        (last_ledger_pnl * copysign(1, cumsize))
+                        (last_ledger_pnl * cumsize_sign)
                     ) / cumsize
                 )
 
@@ -671,7 +672,7 @@ def ledger_to_dfs(
                     (
                         (ppu * cumsize)
                         -
-                        (last_pos_pnl * copysign(1, cumsize))
+                        (last_pos_pnl * cumsize_sign)
                     ) / cumsize
                 )
 
