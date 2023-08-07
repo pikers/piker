@@ -916,22 +916,20 @@ class Client:
 
         ) -> None:
 
-            reason = errorString
+            reason: str = errorString
 
             if reqId == -1:
                 # it's a general event?
-                key = 'event'
+                key: str = 'event'
                 log.info(errorString)
 
             else:
-                key = 'error'
+                key: str = 'error'
                 log.error(errorString)
 
             try:
                 to_trio.send_nowait((
                     key,
-
-                    # error "object"
                     {
                         'type': key,
                         'reqid': reqId,
