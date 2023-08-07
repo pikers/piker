@@ -48,7 +48,9 @@ from piker.brokers import (
     open_cached_client,
     BrokerError,
 )
-from piker.clearing import OrderDialogs
+from piker.clearing import (
+    OrderDialogs,
+)
 from piker.clearing._messages import (
     BrokerdOrder,
     BrokerdOrderAck,
@@ -68,6 +70,33 @@ from .venues import (
 from .api import Client
 
 log = get_logger('piker.brokers.binance')
+
+
+# Fee schedule template, mostly for paper engine fees modelling.
+# https://www.binance.com/en/support/faq/what-are-market-makers-and-takers-360007720071
+def get_cost(
+    price: float,
+    size: float,
+    is_taker: bool = False,
+
+) -> float:
+
+    # https://www.binance.com/en/fee/trading
+    cb: float = price * size
+    match is_taker:
+        case True:
+            return cb * 0.001000
+
+        case False if cb < 1e6:
+            return cb * 0.001000
+
+        case False if 1e6 >= cb < 5e6:
+            return cb * 0.000900
+
+        # NOTE: there's more but are you really going
+        # to have a cb bigger then this per trade?
+        case False if cb >= 5e6:
+            return cb * 0.000800
 
 
 async def handle_order_requests(

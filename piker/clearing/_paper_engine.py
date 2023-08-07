@@ -41,7 +41,7 @@ import tractor
 from piker.brokers import get_brokermod
 from piker.accounting import (
     Account,
-    CostModel,
+    # CostModel,
     MktPair,
     Position,
     Transaction,
@@ -51,12 +51,13 @@ from piker.accounting import (
     unpack_fqme,
 )
 from piker.data import (
-    Struct,
+    Feed,
     SymbologyCache,
     iterticks,
     open_feed,
     open_symcache,
 )
+from piker.types import Struct
 from ._util import (
     log,  # sub-sys logger
     get_console_log,
@@ -84,7 +85,7 @@ class PaperBoi(Struct):
     ems_trades_stream: tractor.MsgStream
     acnt: Account
     ledger: TransactionLedger
-    fees: CostModel
+    fees: Callable
 
     # map of paper "live" orders which be used
     # to simulate fills based on paper engine settings
@@ -266,12 +267,17 @@ class PaperBoi(Struct):
         # we don't actually have any unique backend symbol ourselves
         # other then this thing, our fqme address.
         bs_mktid: str = fqme
+        if fees := self.fees:
+            cost: float = fees(price, size)
+        else:
+            cost: float = 0
+
         t = Transaction(
             fqme=fqme,
             tid=oid,
             size=size,
             price=price,
-            cost=0,  # TODO: cost model
+            cost=cost,
             dt=pendulum.from_timestamp(fill_time_s),
             bs_mktid=bs_mktid,
         )
@@ -296,7 +302,7 @@ class PaperBoi(Struct):
             account='paper',
             symbol=fqme,
 
-            size=pp.size,
+            size=pp.cumsize,
             avg_price=pp.ppu,
 
             # TODO: we need to look up the asset currency from
@@ -657,7 +663,7 @@ async def open_trade_dialog(
                     broker=broker,
                     account='paper',
                     symbol=pos.mkt.fqme,
-                    size=pos.size,
+                    size=pos.cumsize,
                     avg_price=pos.ppu,
                 ))
 
@@ -681,6 +687,7 @@ async def open_trade_dialog(
                 await trio.sleep_forever()
                 return
 
+            feed: Feed
             async with (
                 open_feed(
                     [fqme],
@@ -689,8 +696,14 @@ async def open_trade_dialog(
             ):
                 # sanity check all the mkt infos
                 for fqme, flume in feed.flumes.items():
-                    mkt = symcache.mktmaps.get(fqme) or mkt_by_fqme[fqme]
+                    mkt: MktPair = symcache.mktmaps.get(fqme) or mkt_by_fqme[fqme]
                     assert mkt == flume.mkt
+
+                get_cost: Callable = getattr(
+                    brokermod,
+                    'get_cost',
+                    None,
+                )
 
                 async with (
                     ctx.open_stream() as ems_stream,
@@ -701,6 +714,7 @@ async def open_trade_dialog(
                         ems_trades_stream=ems_stream,
                         acnt=acnt,
                         ledger=ledger,
+                        fees=get_cost,
 
                         _buys=_buys,
                         _sells=_sells,
@@ -776,6 +790,9 @@ def norm_trade(
     pairs: dict[str, Struct],
     symcache: SymbologyCache | None = None,
 
+    # fees: CostModel | None = None,
+    brokermod: ModuleType | None = None,
+
 ) -> Transaction:
     from pendulum import (
         DateTime,
@@ -788,13 +805,30 @@ def norm_trade(
     expiry: str | None = txdict.get('expiry')
     fqme: str = txdict.get('fqme') or txdict.pop('fqsn')
 
+    price: float = txdict['price']
+    size: float =  txdict['size']
+    cost: float = txdict.get('cost', 0)
+    if (
+        brokermod
+        and (get_cost := getattr(
+            brokermod,
+            'get_cost',
+            False,
+        ))
+    ):
+        cost = get_cost(
+            price,
+            size,
+            is_taker=True,
+        )
+
     return Transaction(
         fqme=fqme,
         tid=txdict['tid'],
         dt=dt,
-        price=txdict['price'],
-        size=txdict['size'],
-        cost=txdict.get('cost', 0),
+        price=price,
+        size=size,
+        cost=cost,
         bs_mktid=txdict['bs_mktid'],
         expiry=parse(expiry) if expiry else None,
         etype='clear',

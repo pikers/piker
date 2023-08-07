@@ -21,6 +21,7 @@ Trade and transaction ledger processing.
 from __future__ import annotations
 from collections import UserDict
 from contextlib import contextmanager as cm
+from functools import partial
 from pathlib import Path
 from pprint import pformat
 from types import ModuleType
@@ -189,9 +190,13 @@ class TransactionLedger(UserDict):
 
         if self.account == 'paper':
             from piker.clearing import _paper_engine
-            norm_trade = _paper_engine.norm_trade
+            norm_trade: Callable = partial(
+                _paper_engine.norm_trade,
+                brokermod=self.mod,
+            )
+
         else:
-            norm_trade = self.mod.norm_trade
+            norm_trade: Callable = self.mod.norm_trade
 
         # datetime-sort and pack into txs
         for tid, txdict in self.tx_sort(self.data.items()):

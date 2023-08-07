@@ -32,6 +32,7 @@ from .feed import (
 )
 from .broker import (
     open_trade_dialog,
+    get_cost,
 )
 from .venues import (
     SpotPair,
@@ -41,6 +42,7 @@ from .venues import (
 __all__ = [
     'get_client',
     'get_mkt_info',
+    'get_cost',
     'SpotPair',
     'FutesPair',
     'open_trade_dialog',
