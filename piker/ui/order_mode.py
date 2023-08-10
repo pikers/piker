@@ -1088,9 +1088,16 @@ async def process_trade_msg(
                     mode.on_submit(oid)
 
         case Status(resp='error'):
-            # delete level line from view
+
+            # do all the things for a cancel:
+            # - drop order-msg dialog from client table
+            # - delete level line from view
             mode.on_cancel(oid)
-            broker_msg = msg.brokerd_msg
+
+            # TODO: parse into broker-side msg, or should we
+            # expect it to just be **that** msg verbatim (since
+            # we'd presumably have only 1 `Error` msg-struct)
+            broker_msg: dict = msg.brokerd_msg
             log.error(
                 f'Order {oid}->{resp} with:\n{pformat(broker_msg)}'
             )
@@ -1111,8 +1118,12 @@ async def process_trade_msg(
 
         case Status(
             resp='triggered',
-            # req=Order(exec_mode='live', action='alert') as req, # TODO
-            req={'exec_mode': 'live', 'action': 'alert'} as req,
+            # TODO: do the struct-msg version, blah blah..
+            # req=Order(exec_mode='live', action='alert') as req,
+            req={
+                'exec_mode': 'live',
+                'action': 'alert',
+            } as req,
         ):
             # should only be one "fill" for an alert
             # add a triangle and remove the level line
