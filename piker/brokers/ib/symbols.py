@@ -132,6 +132,12 @@ _adhoc_fiat_set = set((
     ).split(' ,')
 )
 
+# manually discovered tick discrepancies,
+# onl god knows how or why they'd cuck these up..
+_adhoc_mkt_infos: dict[int | str, dict] = {
+    'vtgn.nasdaq': {'price_tick': Decimal('0.01')},
+}
+
 
 # map of symbols to contract ids
 _adhoc_symbol_map = {
@@ -511,6 +517,7 @@ async def get_mkt_info(
         venue = con.primaryExchange or con.exchange
 
     price_tick: Decimal = Decimal(str(details.minTick))
+    # price_tick: Decimal = Decimal('0.01')
 
     if atype == 'stock':
         # XXX: GRRRR they don't support fractional share sizes for
@@ -541,14 +548,15 @@ async def get_mkt_info(
         atype='fiat',
         tx_tick=Decimal('0.01'),  # right?
     )
+    dst = Asset(
+        name=con.symbol.lower(),
+        atype=atype,
+        tx_tick=size_tick,
+    )
 
     mkt = MktPair(
-        dst=Asset(
-            name=con.symbol.lower(),
-            atype=atype,
-            tx_tick=size_tick,
-        ),
         src=src,
+        dst=dst,
 
         price_tick=price_tick,
         size_tick=size_tick,
@@ -562,6 +570,15 @@ async def get_mkt_info(
         # contract_info=<optionsdetails>
         _fqme_without_src=(atype != 'fiat'),
     )
+
+    # just.. wow.
+    if entry := _adhoc_mkt_infos.get(mkt.bs_fqme):
+        log.warning(f'Frickin {mkt.fqme} has an adhoc {entry}..')
+        new = mkt.to_dict()
+        new['price_tick'] = entry['price_tick']
+        new['src'] = src
+        new['dst'] = dst
+        mkt = MktPair(**new)
 
     # if possible register the bs_mktid to the just-built
     # mkt so that it can be retreived by order mode tasks later.
