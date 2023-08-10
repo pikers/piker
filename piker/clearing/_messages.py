@@ -18,10 +18,7 @@
 Clearing sub-system message and protocols.
 
 """
-# from collections import (
-#     ChainMap,
-#     deque,
-# )
+from __future__ import annotations
 from typing import (
     Literal,
 )
@@ -29,28 +26,6 @@ from typing import (
 from msgspec import field
 
 from piker.types import Struct
-
-
-# TODO: a composite for tracking msg flow on 2-legged
-# dialogs.
-# class Dialog(ChainMap):
-#     '''
-#     Msg collection abstraction to easily track the state changes of
-#     a msg flow in one high level, query-able and immutable construct.
-
-#     The main use case is to query data from a (long-running)
-#     msg-transaction-sequence
-
-
-#     '''
-#     def update(
-#         self,
-#         msg,
-#     ) -> None:
-#         self.maps.insert(0, msg.to_dict())
-
-#     def flatten(self) -> dict:
-#         return dict(self)
 
 
 # TODO: ``msgspec`` stuff worth paying attention to:
@@ -163,6 +138,18 @@ class Status(Struct):
     brokerd_msg: dict = {}
 
 
+class Error(Status):
+    resp: str = 'error'
+
+    # TODO: allow re-wrapping from existing (last) status?
+    @classmethod
+    def from_status(
+        cls,
+        msg: Status,
+    ) -> Error:
+        ...
+
+
 # ---------------
 # emsd -> brokerd
 # ---------------
@@ -226,6 +213,7 @@ class BrokerdOrderAck(Struct):
 
     # emsd id originally sent in matching request msg
     oid: str
+    # TODO: do we need this?
     account: str = ''
     name: str = 'ack'
 
@@ -238,13 +226,14 @@ class BrokerdStatus(Struct):
         'open',
         'canceled',
         'pending',
-        'error',
+        # 'error',  # NOTE: use `BrokerdError`
         'closed',
     ]
+    name: str = 'status'
 
+    oid: str = ''
     # TODO: do we need this?
     account: str | None = None,
-    name: str = 'status'
     filled: float = 0.0
     reason: str = ''
     remaining: float = 0.0
@@ -287,15 +276,15 @@ class BrokerdError(Struct):
     This is still a TODO thing since we're not sure how to employ it yet.
 
     '''
-    oid: str
     reason: str
 
     # TODO: drop this right?
     symbol: str | None = None
 
+    oid: str | None = None
     # if no brokerd order request was actually submitted (eg. we errored
     # at the ``pikerd`` layer) then there will be ``reqid`` allocated.
-    reqid: int | str | None = None
+    reqid: str | None = None
 
     name: str = 'error'
     broker_details: dict = {}
