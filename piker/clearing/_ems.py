@@ -949,7 +949,10 @@ async def translate_and_relay_brokerd_events(
                     fqme: str = (
                         bdmsg.symbol  # might be None
                         or
-                        bdmsg.broker_details['flow']['symbol']
+                        bdmsg.broker_details['flow']
+                        # NOTE: what happens in empty case in the
+                        # broadcast below? it's a problem?
+                        .get('symbol', '')
                     )
 
                 await router.client_broadcast(
