@@ -50,7 +50,6 @@ from ._allocate import (
     mk_allocator,
     Allocator,
 )
-from .models import CostModel
 
 
 log = get_logger(__name__)
@@ -59,7 +58,6 @@ __all__ = [
     'Account',
     'Allocator',
     'Asset',
-    'CostModel',
     'MktPair',
     'Position',
     'Symbol',

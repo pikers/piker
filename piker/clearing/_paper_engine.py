@@ -41,7 +41,6 @@ import tractor
 from piker.brokers import get_brokermod
 from piker.accounting import (
     Account,
-    # CostModel,
     MktPair,
     Position,
     Transaction,
@@ -790,7 +789,6 @@ def norm_trade(
     pairs: dict[str, Struct],
     symcache: SymbologyCache | None = None,
 
-    # fees: CostModel | None = None,
     brokermod: ModuleType | None = None,
 
 ) -> Transaction:
