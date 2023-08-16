@@ -779,6 +779,7 @@ class Client:
     async def get_quote(
         self,
         contract: Contract,
+        timeout: float = 1,
 
     ) -> Ticker:
         '''
@@ -789,18 +790,19 @@ class Client:
             contract,
             snapshot=True,
         )
-        ready = ticker.updateEvent
+        ready: ticker.TickerUpdateEvent = ticker.updateEvent
 
         # ensure a last price gets filled in before we deliver quote
         warnset: bool = False
         for _ in range(100):
             if isnan(ticker.last):
 
-                done, pending = await asyncio.wait(
-                    [ready],
-                    timeout=0.01,
+                # wait for a first update(Event)
+                tkr = await asyncio.wait_for(
+                    ready,
+                    timeout=timeout,
                 )
-                if ready in done:
+                if tkr:
                     break
                 else:
                     if not warnset:
