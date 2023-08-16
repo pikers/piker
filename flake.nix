@@ -14,9 +14,9 @@
 
   # see https://github.com/nix-community/poetry2nix/tree/master#api
   inputs.poetry2nix = {
-    url = "github:nix-community/poetry2nix";
+    # url = "github:nix-community/poetry2nix";
     # url = "github:K900/poetry2nix/qt5-explicit-deps";
-    # url = "/home/lord_fomo/repos/poetry2nix";
+    url = "/home/lord_fomo/repos/poetry2nix";
 
     inputs.nixpkgs.follows = "nixpkgs";
   };
@@ -57,17 +57,14 @@
           eventkit = [ "setuptools" ];
           ib-insync = [ "setuptools" "flake8" ];
           msgspec = [ "setuptools"];
-          tabcompleter = [ "setuptools" ];
           pdbp = [ "setuptools" ];
-          xonsh = [ "setuptools" ];
+          pyqt6-sip = [ "setuptools" ];
+          tabcompleter = [ "setuptools" ];
+          tractor = [ "setuptools" ];
+          tricycle = [ "setuptools" ];
           trio-typing = [ "setuptools" ];
           trio-util = [ "setuptools" ];
-          tricycle = [ "setuptools" ];
-          tractor = [ "setuptools" ];
-          pyqt6-sip = [ "setuptools" ];
-
-          # don't need these right?
-          # tomlkit = [ "setuptools" ];
+          xonsh = [ "setuptools" ];
         };
 
         # auto-generate override entries
@@ -121,10 +118,10 @@
 
                   # see PR from @k900:
                   # https://github.com/nix-community/poetry2nix/pull/1257
-                  pyqt5-qt5 = prev.pyqt5-qt5.override {
-                    withWebkit = false;
-                    preferWheel = true;
-                  };
+                  # pyqt5-qt5 = prev.pyqt5-qt5.override {
+                  #   withWebkit = false;
+                  #   preferWheel = true;
+                  # };
 
                   # TODO: patch in an override for polars to build
                   # from src! See the details likely needed from
