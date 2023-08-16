@@ -35,8 +35,8 @@ polars = "^0.18.13"
 qdarkstyle = ">=3.0.2"
 
 # TODO: outstanding pkging issues on nixos
-fuzzywuzzy = {extras = ["speedup"], version = "^0.18.0"}
-# fuzzywuzzy = "^0.18.0"
+# fuzzywuzzy = {extras = ["speedup"], version = "^0.18.0"}
+fuzzywuzzy = "^0.18.0"
 pyqt5 = "^5.15.9"
 # pyqt6 = "^6.5.2"
 
