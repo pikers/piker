@@ -1,0 +1,156 @@
+# NOTE: to convert to a poetry2nix env like this here are the
+# steps:
+# - install poetry in your system nix config
+# - convert the repo to use poetry using `poetry init`:
+#   https://python-poetry.org/docs/basic-usage/#initialising-a-pre-existing-project
+# - then manually ensuring all deps are converted over:
+# - add this file to the repo and commit it
+# - 
+{
+  description = "piker: trading gear for hackers (pkged with poetry2nix)";
+
+  inputs.flake-utils.url = "github:numtide/flake-utils";
+  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+
+  # see https://github.com/nix-community/poetry2nix/tree/master#api
+  inputs.poetry2nix = {
+    url = "github:nix-community/poetry2nix";
+    # url = "github:K900/poetry2nix/qt5-explicit-deps";
+    # url = "/home/lord_fomo/repos/poetry2nix";
+
+    inputs.nixpkgs.follows = "nixpkgs";
+  };
+
+  outputs = {
+    self,
+    nixpkgs,
+    flake-utils,
+    poetry2nix,
+  }:
+    # TODO: build cross-OS and use the `${system}` var thingy..
+    flake-utils.lib.eachDefaultSystem (system:
+      let
+        # use PWD as sources
+        projectDir = ./.;
+        pyproject = ./pyproject.toml;
+        poetrylock = ./poetry.lock;
+
+        # TODO: port to 3.11 and support both versions?
+        python = "python3.10";
+
+        # for more functions and examples.
+        # inherit
+        # (poetry2nix.legacyPackages.${system})
+        # mkPoetryApplication;
+        # pkgs = nixpkgs.legacyPackages.${system};
+
+        pkgs = nixpkgs.legacyPackages.x86_64-linux;
+        lib = pkgs.lib;
+        p2npkgs = poetry2nix.legacyPackages.x86_64-linux;
+
+        # define all pkg overrides per dep, see edgecases.md:
+        # https://github.com/nix-community/poetry2nix/blob/master/docs/edgecases.md
+        # TODO: add these into the json file:
+        # https://github.com/nix-community/poetry2nix/blob/master/overrides/build-systems.json
+        pypkgs-build-requirements = {
+          asyncvnc = [ "setuptools" ];
+          eventkit = [ "setuptools" ];
+          ib-insync = [ "setuptools" "flake8" ];
+          msgspec = [ "setuptools"];
+          tabcompleter = [ "setuptools" ];
+          pdbp = [ "setuptools" ];
+          xonsh = [ "setuptools" ];
+          trio-typing = [ "setuptools" ];
+          trio-util = [ "setuptools" ];
+          tricycle = [ "setuptools" ];
+          tractor = [ "setuptools" ];
+          pyqt6-sip = [ "setuptools" ];
+
+          # don't need these right?
+          # tomlkit = [ "setuptools" ];
+        };
+
+        # auto-generate override entries
+        p2n-overrides = p2npkgs.defaultPoetryOverrides.extend (self: super:
+          builtins.mapAttrs (package: build-requirements:
+            (builtins.getAttr package super).overridePythonAttrs (old: {
+              buildInputs = (
+                old.buildInputs or [ ]
+              ) ++ (
+                builtins.map (
+                  pkg: if builtins.isString pkg then builtins.getAttr pkg super else pkg
+                  ) build-requirements
+              );
+            })
+          ) pypkgs-build-requirements
+        );
+
+      in
+        {
+          # let
+          # devEnv = poetry2nix.mkPoetryEnv {
+          #     projectDir = ./.;
+          # };
+
+          packages = {
+            # piker = poetry2nix.legacyPackages.x86_64-linux.mkPoetryEditablePackage {
+            #   editablePackageSources = { piker = ./piker; };
+            piker = p2npkgs.mkPoetryApplication {
+              projectDir = projectDir;
+
+              # SEE ABOVE for auto-genned input set, override
+              # buncha deps with extras.. like `setuptools` mostly.
+              # TODO: maybe propose a patch to p2n to show that you
+              # can even do this in the edgecases docs?
+              overrides = p2n-overrides.extend(
+                final: prev: {
+
+                  # TODO: get this workin with p2n and nixpkgs..
+                  # pyqt6 = prev.pyqt6.override {
+                  #   preferWheel = true;
+                  # };
+
+                  # NOTE: this DOESN'T work atm but after a fix
+                  # to poetry2nix, it will and actually this line
+                  # won't be needed - thanks @k900:
+                  # https://github.com/nix-community/poetry2nix/pull/1257
+                  pyqt5 = prev.pyqt5.override {
+                    withWebkit = false;
+                    preferWheel = true;
+                  };
+
+                  # see PR from @k900:
+                  # https://github.com/nix-community/poetry2nix/pull/1257
+                  pyqt5-qt5 = prev.pyqt5-qt5.override {
+                    withWebkit = false;
+                    preferWheel = true;
+                  };
+
+                  # TODO: patch in an override for polars to build
+                  # from src! See the details likely needed from
+                  # the cryptography entry:
+                  # https://github.com/nix-community/poetry2nix/blob/master/overrides/default.nix#L426-L435
+                  polars = prev.polars.override {
+                    preferWheel = true;
+                  };
+                }
+              );
+            };
+        };
+
+        # output-attr that `nix-develop` scans for:
+        # https://nixos.org/manual/nix/stable/command-ref/new-cli/nix3-develop.html#flake-output-attributes
+        devShells.default = pkgs.mkShell {
+          # packages = [ poetry2nix.packages.${system}.poetry ];
+          packages = [ poetry2nix.packages.x86_64-linux.poetry ];
+          inputsFrom = [ self.packages.x86_64-linux.piker ];
+
+          # TODO: boot xonsh inside the poetry virtualenv when
+          # defined via a custom entry point?
+          # NOTE XXX: apparently DON'T do these..?
+          # shellHook = "poetry run xonsh";
+          # shellHook = "poetry shell";
+        };
+      }
+    );
+}
