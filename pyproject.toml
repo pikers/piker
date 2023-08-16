@@ -8,6 +8,8 @@ readme = "README.rst"
 
 
 [tool.poetry.dependencies]
+# TODO: do we need this?
+setuptools = "^68.0.0"
 python = "^3.10"
 tomli = "^2.0.1"
 tomli-w = "^1.0.0"
@@ -30,18 +32,24 @@ cython = "^3.0.0"
 numpy = "1.24"
 numba = "^0.57.1"
 polars = "^0.18.13"
-pyqt5 = "^5.15.9"
 qdarkstyle = ">=3.0.2"
+
+# TODO: outstanding pkging issues on nixos
 fuzzywuzzy = {extras = ["speedup"], version = "^0.18.0"}
+# fuzzywuzzy = "^0.18.0"
+pyqt5 = "^5.15.9"
+# pyqt6 = "^6.5.2"
+
+# NOTE: required in explicit env install for shell use w nix
 xonsh = "^0.14.0"
+prompt-toolkit = "^3.0.39"
 
 # pinned from git
-tractor = { path = '../tractor/', develop = true }
-# tractor = { git = 'https://github.com/goodboy/tractor.git', branch = 'piker_pin' }
+# tractor = { path = '../tractor/', develop = true }
+tractor = { git = 'https://github.com/goodboy/tractor.git', branch = 'piker_pin' }
 pyqtgraph = { git = 'https://github.com/pikers/pyqtgraph.git' }
 asyncvnc = { git = 'https://github.com/pikers/asyncvnc.git', branch = 'main' }
 tomlkit = { git = 'https://github.com/pikers/tomlkit.git', branch = 'piker_pin' }
-prompt-toolkit = "^3.0.39"
 
 
 [build-system]
@@ -51,3 +59,6 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry.scripts]
 poetry = "poetry.console.application:main"
+piker = 'piker.cli:cli'
+pikerd = 'piker.cli:pikerd'
+ledger = 'pikerd.accounting.cli:ledger'
