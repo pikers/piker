@@ -226,8 +226,6 @@ def services(config, tl, ports):
 
 
 def _load_clis() -> None:
-    from ..service import marketstore  # noqa
-    from ..service import elastic
     from ..data import cli  # noqa
     from ..brokers import cli  # noqa
     from ..ui import cli  # noqa

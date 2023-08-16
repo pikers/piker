@@ -22,14 +22,14 @@ import trio
 import tractor
 import click
 
-from ..service.marketstore import (
-    # get_client,
-    # stream_quotes,
-    ingest_quote_stream,
-    # _url,
-    # _tick_tbk_ids,
-    # mk_tbk,
-)
+# from ..service.marketstore import (
+#     # get_client,
+#     # stream_quotes,
+#     ingest_quote_stream,
+#     # _url,
+#     # _tick_tbk_ids,
+#     # mk_tbk,
+# )
 from ..cli import cli
 from .. import watchlists as wl
 from ._util import (
@@ -212,44 +212,44 @@ def storage(
     trio.run(main)
 
 
-@cli.command()
-@click.option('--test-file', '-t', help='Test quote stream file')
-@click.option('--tl', is_flag=True, help='Enable tractor logging')
-@click.argument('name', nargs=1, required=True)
-@click.pass_obj
-def ingest(config, name, test_file, tl):
-    '''
-    Ingest real-time broker quotes and ticks to a marketstore instance.
+# @cli.command()
+# @click.option('--test-file', '-t', help='Test quote stream file')
+# @click.option('--tl', is_flag=True, help='Enable tractor logging')
+# @click.argument('name', nargs=1, required=True)
+# @click.pass_obj
+# def ingest(config, name, test_file, tl):
+#     '''
+#     Ingest real-time broker quotes and ticks to a marketstore instance.
 
-    '''
-    # global opts
-    loglevel = config['loglevel']
-    tractorloglevel = config['tractorloglevel']
-    # log = config['log']
+#     '''
+#     # global opts
+#     loglevel = config['loglevel']
+#     tractorloglevel = config['tractorloglevel']
+#     # log = config['log']
 
-    watchlist_from_file = wl.ensure_watchlists(config['wl_path'])
-    watchlists = wl.merge_watchlist(watchlist_from_file, wl._builtins)
-    symbols = watchlists[name]
+#     watchlist_from_file = wl.ensure_watchlists(config['wl_path'])
+#     watchlists = wl.merge_watchlist(watchlist_from_file, wl._builtins)
+#     symbols = watchlists[name]
 
-    grouped_syms = {}
-    for sym in symbols:
-        symbol, _, provider = sym.rpartition('.')
-        if provider not in grouped_syms:
-            grouped_syms[provider] = []
+#     grouped_syms = {}
+#     for sym in symbols:
+#         symbol, _, provider = sym.rpartition('.')
+#         if provider not in grouped_syms:
+#             grouped_syms[provider] = []
 
-        grouped_syms[provider].append(symbol)
+#         grouped_syms[provider].append(symbol)
 
-    async def entry_point():
-        async with tractor.open_nursery() as n:
-            for provider, symbols in grouped_syms.items():
-                await n.run_in_actor(
-                    ingest_quote_stream,
-                    name='ingest_marketstore',
-                    symbols=symbols,
-                    brokername=provider,
-                    tries=1,
-                    actorloglevel=loglevel,
-                    loglevel=tractorloglevel
-                )
+#     async def entry_point():
+#         async with tractor.open_nursery() as n:
+#             for provider, symbols in grouped_syms.items():
+#                 await n.run_in_actor(
+#                     ingest_quote_stream,
+#                     name='ingest_marketstore',
+#                     symbols=symbols,
+#                     brokername=provider,
+#                     tries=1,
+#                     actorloglevel=loglevel,
+#                     loglevel=tractorloglevel
+#                 )
 
-    tractor.run(entry_point)
+#     tractor.run(entry_point)
