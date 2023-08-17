@@ -58,7 +58,7 @@ build-backend = "poetry.core.masonry.api"
 
 
 [tool.poetry.scripts]
-poetry = "poetry.console.application:main"
+# poetry = "poetry.console.application:main"
 piker = 'piker.cli:cli'
 pikerd = 'piker.cli:pikerd'
 ledger = 'pikerd.accounting.cli:ledger'
