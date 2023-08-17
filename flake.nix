@@ -82,16 +82,53 @@
           ) pypkgs-build-requirements
         );
 
-      in
-        {
-          # let
-          # devEnv = poetry2nix.mkPoetryEnv {
-          #     projectDir = ./.;
-          # };
+        # override some ahead-of-time compiled extensions
+        # to be built with their wheels.
+        ahot_overrides = p2n-overrides.extend(
+          final: prev: {
 
+            # llvmlite = prev.llvmlite.override {
+            #   preferWheel = false;
+            # };
+
+            # TODO: get this workin with p2n and nixpkgs..
+            # pyqt6 = prev.pyqt6.override {
+            #   preferWheel = true;
+            # };
+
+            # NOTE: this DOESN'T work atm but after a fix
+            # to poetry2nix, it will and actually this line
+            # won't be needed - thanks @k900:
+            # https://github.com/nix-community/poetry2nix/pull/1257
+            pyqt5 = prev.pyqt5.override {
+              withWebkit = false;
+              preferWheel = true;
+            };
+
+            # see PR from @k900:
+            # https://github.com/nix-community/poetry2nix/pull/1257
+            # pyqt5-qt5 = prev.pyqt5-qt5.override {
+            #   withWebkit = false;
+            #   preferWheel = true;
+            # };
+
+            # TODO: patch in an override for polars to build
+            # from src! See the details likely needed from
+            # the cryptography entry:
+            # https://github.com/nix-community/poetry2nix/blob/master/overrides/default.nix#L426-L435
+            polars = prev.polars.override {
+              preferWheel = true;
+            };
+          }
+      );
+
+      # WHY!? -> output-attrs that `nix develop` scans for:
+      # https://nixos.org/manual/nix/stable/command-ref/new-cli/nix3-develop.html#flake-output-attributes
+      in {
           packages = {
             # piker = poetry2nix.legacyPackages.x86_64-linux.mkPoetryEditablePackage {
             #   editablePackageSources = { piker = ./piker; };
+
             piker = p2npkgs.mkPoetryApplication {
               projectDir = projectDir;
 
@@ -99,55 +136,43 @@
               # buncha deps with extras.. like `setuptools` mostly.
               # TODO: maybe propose a patch to p2n to show that you
               # can even do this in the edgecases docs?
-              overrides = p2n-overrides.extend(
-                final: prev: {
+              overrides = ahot_overrides;
 
-                  # TODO: get this workin with p2n and nixpkgs..
-                  # pyqt6 = prev.pyqt6.override {
-                  #   preferWheel = true;
-                  # };
-
-                  # NOTE: this DOESN'T work atm but after a fix
-                  # to poetry2nix, it will and actually this line
-                  # won't be needed - thanks @k900:
-                  # https://github.com/nix-community/poetry2nix/pull/1257
-                  pyqt5 = prev.pyqt5.override {
-                    withWebkit = false;
-                    preferWheel = true;
-                  };
-
-                  # see PR from @k900:
-                  # https://github.com/nix-community/poetry2nix/pull/1257
-                  # pyqt5-qt5 = prev.pyqt5-qt5.override {
-                  #   withWebkit = false;
-                  #   preferWheel = true;
-                  # };
-
-                  # TODO: patch in an override for polars to build
-                  # from src! See the details likely needed from
-                  # the cryptography entry:
-                  # https://github.com/nix-community/poetry2nix/blob/master/overrides/default.nix#L426-L435
-                  polars = prev.polars.override {
-                    preferWheel = true;
-                  };
-                }
-              );
+              # XXX: won't work on llvmlite..
+              # preferWheels = true;
             };
-        };
+          };
 
-        # output-attr that `nix-develop` scans for:
-        # https://nixos.org/manual/nix/stable/command-ref/new-cli/nix3-develop.html#flake-output-attributes
-        devShells.default = pkgs.mkShell {
-          # packages = [ poetry2nix.packages.${system}.poetry ];
-          packages = [ poetry2nix.packages.x86_64-linux.poetry ];
-          inputsFrom = [ self.packages.x86_64-linux.piker ];
+          devShells.default = pkgs.mkShell {
+            # packages = [ poetry2nix.packages.${system}.poetry ];
+            packages = [ poetry2nix.packages.x86_64-linux.poetry ];
+            inputsFrom = [ self.packages.x86_64-linux.piker ];
 
-          # TODO: boot xonsh inside the poetry virtualenv when
-          # defined via a custom entry point?
-          # NOTE XXX: apparently DON'T do these..?
-          # shellHook = "poetry run xonsh";
-          # shellHook = "poetry shell";
-        };
-      }
-    );
+            # TODO: boot xonsh inside the poetry virtualenv when
+            # defined via a custom entry point?
+            # NOTE XXX: apparently DON'T do these..?
+            # shellHook = "poetry run xonsh";
+            # shellHook = "poetry shell";
+          };
+
+
+          # TODO: grok the difference here..
+          # - avoid re-cloning git repos on every develop entry..
+          # - ideally allow hacking on the src code of some deps
+          #   (tractor, pyqtgraph, tomlkit, etc.) WITHOUT having to
+          #   re-install them every time a change is made.
+
+          # devShells.default = (p2npkgs.mkPoetryEnv {
+          # # let {
+          # #   devEnv = p2npkgs.mkPoetryEnv {
+          #     projectDir = projectDir;
+          #     overrides = ahot_overrides;
+          #     inputsFrom = [ self.packages.x86_64-linux.piker ];
+          #   }).env.overrideAttrs (old: {
+          #       buildInputs = [ packages.piker ];
+          #     }
+          #   );
+
+        }
+    );  # end of .outputs scope
 }
