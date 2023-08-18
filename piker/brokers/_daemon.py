@@ -179,9 +179,6 @@ def broker_init(
         subpath: str = f'{modpath}.{submodname}'
         enabled.append(subpath)
 
-        # TODO XXX: DO WE NEED THIS?
-        # enabled.append('piker.data.feed')
-
     return (
         brokermod,
         start_actor_kwargs,  # to `ActorNursery.start_actor()`
