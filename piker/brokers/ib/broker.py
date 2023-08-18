@@ -1249,7 +1249,7 @@ async def deliver_trade_events(
                 if err['reqid'] == -1:
                     log.error(f'TWS external order error:\n{pformat(err)}')
 
-                flow: ChainMap = flows.get(reqid)
+                flow: dict = dict(flows.get(reqid)) or  {}
 
                 # TODO: we don't want to relay data feed / lookup errors
                 # so we need some further filtering logic here..
@@ -1260,7 +1260,7 @@ async def deliver_trade_events(
                     reason=reason,
                     broker_details={
                         'name': 'ib',
-                        'flow': dict(flow),
+                        'flow': flow,
                     },
                 )
                 flows.add_msg(reqid, err_msg.to_dict())
