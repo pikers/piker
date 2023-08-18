@@ -1,3 +1,9 @@
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+# ------ - ------
+
 [tool.poetry]
 name = "piker"
 version = "0.1.0.alpha0.dev0"
@@ -8,45 +14,37 @@ readme = "README.rst"
 
 # ------ - ------
 
+# NOTE: the default install is like an `--only daemon` deps group
+# for running a non-ui / headless / pikerd-service-actor-tree in
+# disti mode:
+# https://python-poetry.org/docs/managing-dependencies/#installing-group-dependencies
+# <SEE BELOW for installing the `--with uis` group>
 [tool.poetry.dependencies]
-# TODO: do we need this?
-setuptools = "^68.0.0"
+asks = "^3.0.0"
+async-generator = "^1.10"
+attrs = "^23.1.0"
+bidict = "^0.22.1"
+colorama = "^0.4.6"
+colorlog = "^6.7.0"
+cython = "^3.0.0"
+greenback = "^1.1.1"
+ib-insync = "^0.9.86"
+msgspec = "^0.18.0"
+numba = "^0.57.1"
+numpy = "1.24"
+pendulum = "^2.1.2"
+polars = "^0.18.13"
+pygments = "^2.16.1"
 python = "^3.10"
+rich = "^13.5.2"
+# setuptools = "^68.0.0"
 tomli = "^2.0.1"
 tomli-w = "^1.0.0"
-colorlog = "^6.7.0"
-attrs = "^23.1.0"
-pygments = "^2.16.1"
-colorama = "^0.4.6"
-msgspec = "^0.18.0"
-typer = "^0.9.0"
-rich = "^13.5.2"
 trio = "^0.22.2"
-trio-websocket = "^0.10.3"
 trio-util = "^0.7.0"
-async-generator = "^1.10"
-asks = "^3.0.0"
-ib-insync = "^0.9.86"
-pendulum = "^2.1.2"
-bidict = "^0.22.1"
-cython = "^3.0.0"
-numpy = "1.24"
-numba = "^0.57.1"
-polars = "^0.18.13"
-qdarkstyle = ">=3.0.2"
+trio-websocket = "^0.10.3"
+typer = "^0.9.0"
 
-# TODO: outstanding pkging issues on nixos
-# fuzzywuzzy = {extras = ["speedup"], version = "^0.18.0"}
-fuzzywuzzy = "^0.18.0"
-pyqt5 = "^5.15.9"
-# pyqt6 = "^6.5.2"
-
-# NOTE: required in explicit env install for shell use w nix
-xonsh = "^0.14.0"
-prompt-toolkit = "^3.0.39"
-
-# pinned from git for "hackability"
-pyqtgraph = { git = 'https://github.com/pikers/pyqtgraph.git' }
 
 [tool.poetry.dependencies.asyncvnc]
 git = 'https://github.com/pikers/asyncvnc.git'
@@ -69,9 +67,37 @@ develop = true
 
 # ------ - ------
 
-[build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
+[tool.poetry.group.uis]
+optional=true
+[tool.poetry.group.uis.dependencies]
+# https://python-poetry.org/docs/managing-dependencies/#dependency-groups
+# TODO: outstanding pkging issues on nixos.. no wheel and missing
+# overlay code in the flake to get AOTC workin.
+fuzzywuzzy = {extras = ["speedup"], version = "^0.18.0"}
+# fuzzywuzzy = "^0.18.0"
+qdarkstyle = ">=3.0.2"
+pyqt5 = "^5.15.9"
+pyqtgraph = { git = 'https://github.com/pikers/pyqtgraph.git' }
+# pyqt6 = "^6.5.2"
+
+# ------ - ------
+
+[tool.poetry.group.dev]
+optional = true
+[tool.poetry.group.dev.dependencies]
+# testing / CI
+pytest = "^6.0.0"
+elasticsearch = "^8.9.0"
+
+# console ehancements and eventually remote debugging
+# extras/helpers.
+# TODO: add a toolset that makes debugging a `pikerd` service
+# (tree) easy to hack on directly using more or less the local env:
+# - xonsh + xxh
+# - rsyscall + pdbp
+# - actor runtime control console like BEAM/OTP
+xonsh = "^0.14.0"  # XXX: explicit env install for shell use w nix
+prompt-toolkit = "^3.0.39"
 
 # ------ - ------
 
@@ -79,4 +105,6 @@ build-backend = "poetry.core.masonry.api"
 # poetry = "poetry.console.application:main"
 piker = 'piker.cli:cli'
 pikerd = 'piker.cli:pikerd'
-ledger = 'pikerd.accounting.cli:ledger'
+ledger = 'piker.accounting.cli:ledger'
+
+# ------ - ------
