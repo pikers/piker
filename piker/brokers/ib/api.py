@@ -663,7 +663,7 @@ class Client:
 
         # commodities
         elif exch == 'CMDTY':  # eg. XAUUSD.CMDTY
-            con_kwargs, bars_kwargs = _adhoc_symbol_map[symbol]
+            con_kwargs, bars_kwargs = _adhoc_symbol_map[symbol.upper()]
             con = Commodity(**con_kwargs)
             con.bars_kwargs = bars_kwargs
 
@@ -780,6 +780,7 @@ class Client:
         self,
         contract: Contract,
         timeout: float = 1,
+        raise_on_timeout: bool = False,
 
     ) -> Ticker:
         '''
@@ -798,10 +799,16 @@ class Client:
             if isnan(ticker.last):
 
                 # wait for a first update(Event)
-                tkr = await asyncio.wait_for(
-                    ready,
-                    timeout=timeout,
-                )
+                try:
+                    tkr = await asyncio.wait_for(
+                        ready,
+                        timeout=timeout,
+                    )
+                except TimeoutError:
+                    if raise_on_timeout:
+                        raise
+                    return tkr
+
                 if tkr:
                     break
                 else:
