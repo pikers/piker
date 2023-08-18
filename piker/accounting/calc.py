@@ -353,7 +353,7 @@ def open_ledger_dfs(
     can update the ledger on exit.
 
     '''
-    from tractor._debug import open_crash_handler
+    from piker.toolz import open_crash_handler
     with open_crash_handler():
         if not ledger:
             import time
