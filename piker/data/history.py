@@ -701,8 +701,23 @@ async def tsdb_backfill(
             # prepended, presuming there is a gap between the
             # latest frame (loaded/read above) and the latest
             # sample loaded from the tsdb.
-            backfill_diff: Duration =  mr_start_dt - last_tsdb_dt
+            backfill_diff: Duration = mr_start_dt - last_tsdb_dt
             offset_s: float = backfill_diff.in_seconds()
+
+            # XXX EDGE CASE: when the venue was closed (say over
+            # the weeknd) causing a timeseries gap, AND the query
+            # frames size (eg. for 1s we rx 2k datums ~= 33.33m) IS
+            # GREATER THAN the current venue-market's operating
+            # session (time) we will receive datums from BEFORE THE
+            # CLOSURE GAP and thus the `offset_s` value will be
+            # NEGATIVE! In this case we need to ensure we don't try
+            # to push datums that have already been recorded in the
+            # tsdb. In this case we instead only retreive and push
+            # the series portion missing from the db's data set.
+            if offset_s < 0:
+                backfill_diff: Duration = mr_end_dt - last_tsdb_dt
+                offset_s: float = backfill_diff.in_seconds()
+
             offset_samples: int = round(offset_s / timeframe)
 
             # TODO: see if there's faster multi-field reads:
