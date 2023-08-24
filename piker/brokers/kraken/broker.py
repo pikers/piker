@@ -407,7 +407,7 @@ def trades2pps(
                 # included?
                 account='kraken.' + acctid,
                 symbol=p.mkt.fqme,
-                size=p.size,
+                size=p.cumsize,
                 avg_price=p.ppu,
                 currency='',
             )
