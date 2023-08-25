@@ -6,6 +6,7 @@ authors = ["Tyler Goodlet <jgbt@protonmail.com>"]
 license = "AGPLv3"
 readme = "README.rst"
 
+# ------ - ------
 
 [tool.poetry.dependencies]
 # TODO: do we need this?
@@ -57,18 +58,22 @@ branch = 'main'
 path = "../tomlkit/"
 develop = true
 
-# tractor = { git = 'https://github.com/goodboy/tractor.git', branch = 'piker_pin' , develop = true}
-# tractor = { path = '../tractor/', develop = true }
+# ------ - ------
+
 [tool.poetry.dependencies.tractor]
+# path = '../tractor/'
+# branch = 'asyncio_debugger_support'
 git = 'https://github.com/goodboy/tractor.git'
 branch = 'piker_pin'
 develop = true
 
+# ------ - ------
 
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
 
+# ------ - ------
 
 [tool.poetry.scripts]
 # poetry = "poetry.console.application:main"
