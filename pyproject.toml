@@ -44,12 +44,25 @@ pyqt5 = "^5.15.9"
 xonsh = "^0.14.0"
 prompt-toolkit = "^3.0.39"
 
-# pinned from git
-# tractor = { path = '../tractor/', develop = true }
-tractor = { git = 'https://github.com/goodboy/tractor.git', branch = 'piker_pin' }
+# pinned from git for "hackability"
 pyqtgraph = { git = 'https://github.com/pikers/pyqtgraph.git' }
-asyncvnc = { git = 'https://github.com/pikers/asyncvnc.git', branch = 'main' }
-tomlkit = { git = 'https://github.com/pikers/tomlkit.git', branch = 'piker_pin' }
+
+[tool.poetry.dependencies.asyncvnc]
+git = 'https://github.com/pikers/asyncvnc.git'
+branch = 'main'
+
+[tool.poetry.dependencies.tomlkit]
+# git = 'https://github.com/pikers/tomlkit.git',
+# branch = 'piker_pin'
+path = "../tomlkit/"
+develop = true
+
+# tractor = { git = 'https://github.com/goodboy/tractor.git', branch = 'piker_pin' , develop = true}
+# tractor = { path = '../tractor/', develop = true }
+[tool.poetry.dependencies.tractor]
+git = 'https://github.com/goodboy/tractor.git'
+branch = 'piker_pin'
+develop = true
 
 
 [build-system]
