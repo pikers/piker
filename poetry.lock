@@ -1070,7 +1070,7 @@ description = "structured concurrrent `trio`-\"actors\""
 optional = false
 python-versions = ">=3.10"
 files = []
-develop = false
+develop = true
 
 [package.dependencies]
 async_generator = "*"
@@ -1363,4 +1363,4 @@ testing = ["big-O", "jaraco.functools", "jaraco.itertools", "more-itertools", "p
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.10"
-content-hash = "90313784542c1955425e09c2a9238c2f1682200c99d74c5a5e8d0c2e6bae64d3"
+content-hash = "60794b764aa110829379b5c12ea0a0715896d566f692a68330f708071a8b2ecf"
