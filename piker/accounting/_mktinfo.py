@@ -36,7 +36,7 @@ from typing import (
     Literal,
 )
 
-from ..data.types import Struct
+from piker.types import Struct
 
 
 # TODO: make these literals..
@@ -130,8 +130,29 @@ class Asset(Struct, frozen=True):
     # should not be explicitly required in our generic API.
     info: dict | None = None
 
-    # TODO?
-    # _to_dict_skip = {'info'}
+    # `None` is not toml-compat so drop info
+    # if no extra data added..
+    def to_dict(
+        self,
+        **kwargs,
+    ) -> dict:
+        dct = super().to_dict(**kwargs)
+        if (info := dct.pop('info', None)):
+            dct['info'] = info
+
+        assert dct['tx_tick']
+        return dct
+
+    @classmethod
+    def from_msg(
+        cls,
+        msg: dict[str, Any],
+    ) -> Asset:
+        return cls(
+            tx_tick=Decimal(str(msg.pop('tx_tick'))),
+            info=msg.pop('info', None),
+            **msg,
+        )
 
     def __str__(self) -> str:
         return self.name
@@ -288,11 +309,35 @@ class MktPair(Struct, frozen=True):
     # strike price, call or put, swap type, exercise model, etc.
     contract_info: list[str] | None = None
 
+    # TODO: rename to sectype since all of these can
+    # be considered "securities"?
     _atype: str = ''
+
+    # allow explicit disable of the src part of the market
+    # pair name -> useful for legacy markets like qqq.nasdaq.ib
+    _fqme_without_src: bool = False
 
     # NOTE: when cast to `str` return fqme
     def __str__(self) -> str:
         return self.fqme
+
+    def to_dict(
+        self,
+        **kwargs,
+    ) -> dict:
+        d = super().to_dict(**kwargs)
+        d['src'] = self.src.to_dict(**kwargs)
+        d['dst'] = self.dst.to_dict(**kwargs)
+
+        d['price_tick'] = str(self.price_tick)
+        d['size_tick'] = str(self.size_tick)
+
+        if self.contract_info is None:
+            d.pop('contract_info')
+
+        # d.pop('_fqme_without_src')
+
+        return d
 
     @classmethod
     def from_msg(
@@ -305,35 +350,26 @@ class MktPair(Struct, frozen=True):
 
         '''
         dst_asset_msg = msg.pop('dst')
+        dst = Asset.from_msg(dst_asset_msg)  # .copy()
+
         src_asset_msg = msg.pop('src')
+        src = Asset.from_msg(src_asset_msg)  # .copy()
 
-        if isinstance(dst_asset_msg, str):
-            src: str = str(src_asset_msg)
-            assert isinstance(src, str)
-            return cls.from_fqme(
-                dst_asset_msg,
-                src=src,
-                **msg,
-            )
-
-        else:
-            # NOTE: we call `.copy()` here to ensure
-            # type casting!
-            dst = Asset(**dst_asset_msg).copy()
-            if not isinstance(src_asset_msg, str):
-                src = Asset(**src_asset_msg).copy()
-            else:
-                src = str(src_asset_msg)
-
+        # XXX NOTE: ``msgspec`` can encode `Decimal` but it doesn't
+        # decide to it by default since we aren't spec-cing these
+        # msgs as structs proper to get them to decode implictily
+        # (yet) as per,
+        # - https://github.com/pikers/piker/pull/354
+        # - https://github.com/goodboy/tractor/pull/311
+        # SO we have to ensure we do a struct type
+        # case (which `.copy()` does) to ensure we get the right
+        # type!
         return cls(
             dst=dst,
             src=src,
+            price_tick=Decimal(msg.pop('price_tick')),
+            size_tick=Decimal(msg.pop('size_tick')),
             **msg,
-        # XXX NOTE: ``msgspec`` can encode `Decimal`
-        # but it doesn't decide to it by default since
-        # we aren't spec-cing these msgs as structs, SO
-        # we have to ensure we do a struct type case (which `.copy()`
-        # does) to ensure we get the right type!
         ).copy()
 
     @property
@@ -361,7 +397,20 @@ class MktPair(Struct, frozen=True):
         ):
             _fqme = f'{fqme}.{broker}'
 
-        broker, mkt_ep_key, venue, suffix = unpack_fqme(_fqme)
+        broker, mkt_ep_key, venue, expiry = unpack_fqme(_fqme)
+
+        kven: str = kwargs.pop('venue', venue)
+        if venue:
+            assert venue == kven
+        else:
+            venue = kven
+
+        exp: str = kwargs.pop('expiry', expiry)
+        if expiry:
+            assert exp == expiry
+        else:
+            expiry = exp
+
         dst: Asset = Asset.guess_from_mkt_ep_key(
             mkt_ep_key,
             atype=kwargs.get('_atype'),
@@ -373,14 +422,15 @@ class MktPair(Struct, frozen=True):
         # which we expect to be filled in by some
         # backend client with access to that data-info.
         return cls(
-            # XXX: not resolved to ``Asset`` :(
             dst=dst,
+            # XXX: not resolved to ``Asset`` :(
+            #src=src,
 
             broker=broker,
             venue=venue,
             # XXX NOTE: we presume this token
             # if the expiry for now!
-            expiry=suffix,
+            expiry=expiry,
 
             price_tick=price_tick,
             size_tick=size_tick,
@@ -486,7 +536,7 @@ class MktPair(Struct, frozen=True):
         '''
         key: str = (
             self.pair(delim_char=delim_char)
-            if not without_src
+            if not (without_src or self._fqme_without_src)
             else str(self.dst)
         )
 
@@ -555,7 +605,7 @@ class MktPair(Struct, frozen=True):
         if isinstance(self.dst, Asset):
             return str(self.dst.atype)
 
-        return 'unknown'
+        return 'UNKNOWN'
 
     @property
     def price_tick_digits(self) -> int:

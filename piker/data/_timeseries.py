@@ -18,7 +18,8 @@
 Financial time series processing utilities usually
 pertaining to OHLCV style sampled data.
 
-Routines are generally implemented in either ``numpy`` or ``polars`` B)
+Routines are generally implemented in either ``numpy`` or
+``polars`` B)
 
 '''
 from __future__ import annotations
@@ -32,7 +33,7 @@ import numpy as np
 import polars as pl
 
 from ._sharedmem import ShmArray
-from .._profile import (
+from ..toolz.profile import (
     Profiler,
     pg_profile_enabled,
     ms_slower_then,
@@ -208,8 +209,13 @@ def detect_null_time_gap(
     NOTE: for now presumes only ONE gap XD
 
     '''
-    zero_pred: np.ndarray = shm.array['time'] == 0
-    zero_t: np.ndarray = shm.array[zero_pred]
+    # ensure we read buffer state only once so that ShmArray rt
+    # circular-buffer updates don't cause a indexing/size mismatch.
+    array: np.ndarray = shm.array
+
+    zero_pred: np.ndarray = array['time'] == 0
+    zero_t: np.ndarray = array[zero_pred]
+
     if zero_t.size:
         istart, iend = zero_t['index'][[0, -1]]
         start, end = shm._array['time'][
@@ -225,7 +231,7 @@ def detect_null_time_gap(
     return None
 
 
-t_unit: Literal[
+t_unit: Literal = Literal[
     'days',
     'hours',
     'minutes',
@@ -269,9 +275,14 @@ def detect_time_gaps(
     # gap_dt_unit: t_unit = 'minutes',
     # gap_thresh: int = 1,
 
-    # legacy stock mkts
+    # NOTE: legacy stock mkts have venue operating hours
+    # and thus gaps normally no more then 1-2 days at
+    # a time.
+    # XXX -> must be valid ``polars.Expr.dt.<name>``
+    # TODO: allow passing in a frame of operating hours
+    # durations/ranges for faster legit gap checks.
     gap_dt_unit: t_unit = 'days',
-    gap_thresh: int = 2,
+    gap_thresh: int = 1,
 
 ) -> pl.DataFrame:
     '''
@@ -281,18 +292,17 @@ def detect_time_gaps(
     actual missing data segments.
 
     '''
-    dt_gap_col: str = f'{gap_dt_unit}_diff'
-    return with_dts(
-        df
-    ).filter(
-        pl.col('s_diff').abs() > expect_period
-    ).with_columns(
-        getattr(
-            pl.col('dt_diff').dt,
-            gap_dt_unit,  # NOTE: must be valid ``Expr.dt.<name>``
-        )().alias(dt_gap_col)
-    ).filter(
-        pl.col(dt_gap_col).abs() > gap_thresh
+    return (
+        with_dts(df)
+        .filter(
+            pl.col('s_diff').abs() > expect_period
+        )
+        .filter(
+            getattr(
+                pl.col('dt_diff').dt,
+                gap_dt_unit,
+            )().abs() > gap_thresh
+        )
     )
 
 

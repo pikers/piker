@@ -39,7 +39,7 @@ from ..data._pathops import (
     xy_downsample,
 )
 from ..log import get_logger
-from .._profile import (
+from ..toolz import (
     Profiler,
 )
 

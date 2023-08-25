@@ -19,6 +19,7 @@ CLI front end for trades ledger and position tracking management.
 
 '''
 from __future__ import annotations
+from pprint import pformat
 
 
 from rich.console import Console
@@ -37,13 +38,11 @@ from ..calc import humanize
 from ..brokers._daemon import broker_init
 from ._ledger import (
     load_ledger,
+    TransactionLedger,
     # open_trade_ledger,
-    # TransactionLedger,
 )
-from ._pos import (
-    PpTable,
-    load_pps_from_ledger,
-    # load_account,
+from .calc import (
+    open_ledger_dfs,
 )
 
 
@@ -240,54 +239,73 @@ def sync(
 def disect(
     # "fully_qualified_account_name"
     fqan: str,
-    bs_mktid: str,  # for ib
-    pdb: bool = False,
+    fqme: str,  # for ib
 
+    # TODO: in tractor we should really have
+    # a debug_mode ctx for wrapping any kind of code no?
+    pdb: bool = False,
+    bs_mktid: str = typer.Option(
+        None,
+        "-bid",
+    ),
     loglevel: str = typer.Option(
         'error',
         "-l",
     ),
 ):
+    from piker.log import get_console_log
+    from piker.toolz import open_crash_handler
+    get_console_log(loglevel)
+
     pair: tuple[str, str]
     if not (pair := unpack_fqan(fqan)):
         raise ValueError('{fqan} malformed!?')
 
     brokername, account = pair
 
-    # ledger: TransactionLedger
-    records: dict[str, dict]
-    table: PpTable
-    records, table = load_pps_from_ledger(
-        brokername,
-        account,
-        filter_by_ids={bs_mktid},
-    )
-    df = pl.DataFrame(
-        list(records.values()),
-        # schema=[
-        #     ('tid', str),
-        #     ('fqme', str),
-        #     ('dt', str),
-        #     ('size', pl.Float64),
-        #     ('price', pl.Float64),
-        #     ('cost', pl.Float64),
-        #     ('expiry', str),
-        #     ('bs_mktid', str),
-        # ],
-    ).select([
-        pl.col('fqme'),
-        pl.col('dt').str.to_datetime(),
-        # pl.col('expiry').dt.datetime(),
-        pl.col('size'),
-        pl.col('price'),
-    ])
+    # ledger dfs groupby-partitioned by fqme
+    dfs: dict[str, pl.DataFrame]
+    # actual ledger instance
+    ldgr: TransactionLedger
 
-    assert not df.is_empty()
-    breakpoint()
-    # tractor.pause_from_sync()
-    # with open_trade_ledger(
-    #     brokername,
-    #     account,
-    # ) as ledger:
-    #     for tid, rec in ledger.items():
-    #         bs_mktid: str = rec['bs_mktid']
+    pl.Config.set_tbl_cols(-1)
+    pl.Config.set_tbl_rows(-1)
+    with (
+        open_crash_handler(),
+        open_ledger_dfs(
+            brokername,
+            account,
+        ) as (dfs, ldgr),
+    ):
+
+        # look up specific frame for fqme-selected asset
+        if (df := dfs.get(fqme)) is None:
+            mktids2fqmes: dict[str, list[str]] = {}
+            for bs_mktid in dfs:
+                df: pl.DataFrame = dfs[bs_mktid]
+                fqmes: pl.Series[str] = df['fqme']
+                uniques: list[str] = fqmes.unique()
+                mktids2fqmes[bs_mktid] = set(uniques)
+                if fqme in uniques:
+                    break
+            print(
+                f'No specific ledger for fqme={fqme} could be found in\n'
+                f'{pformat(mktids2fqmes)}?\n'
+                f'Maybe the `{brokername}` backend uses something '
+                'else for its `bs_mktid` then the `fqme`?\n'
+                'Scanning for matches in unique fqmes per frame..\n'
+            )
+
+        # :pray:
+        assert not df.is_empty()
+
+        # muck around in pdbp REPL
+        breakpoint()
+
+        # TODO: we REALLY need a better console REPL for this
+        # kinda thing..
+        # - `xonsh` is an obvious option (and it looks amazin) but
+        # we need to figure out how to embed it better then just:
+        # from xonsh.main import main
+        # main(argv=[])
+        # which will not actually inject the `df` to globals?

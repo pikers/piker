@@ -95,15 +95,15 @@ async def option_chain(
             return await client.option_chains(contracts)
 
 
-async def contracts(
-    brokermod: ModuleType,
-    symbol: str,
-) -> Dict[str, Dict[str, Dict[str, Any]]]:
-    """Return option contracts (all expiries) for ``symbol``.
-    """
-    async with brokermod.get_client() as client:
-        # return await client.get_all_contracts([symbol])
-        return await client.get_all_contracts([symbol])
+# async def contracts(
+#     brokermod: ModuleType,
+#     symbol: str,
+# ) -> Dict[str, Dict[str, Dict[str, Any]]]:
+#     """Return option contracts (all expiries) for ``symbol``.
+#     """
+#     async with brokermod.get_client() as client:
+#         # return await client.get_all_contracts([symbol])
+#         return await client.get_all_contracts([symbol])
 
 
 async def bars(
@@ -115,21 +115,6 @@ async def bars(
     """
     async with brokermod.get_client() as client:
         return await client.bars(symbol, **kwargs)
-
-
-async def mkt_info(
-    brokermod: ModuleType,
-    fqme: str,
-    **kwargs,
-
-) -> MktPair:
-    '''
-    Return MktPair info from broker including src and dst assets.
-
-    '''
-    return await brokermod.get_mkt_info(
-        fqme.replace(brokermod.name, '')
-    )
 
 
 async def search_w_brokerd(name: str, pattern: str) -> dict:
@@ -178,3 +163,20 @@ async def symbol_search(
             n.start_soon(search_backend, mod.name)
 
     return results
+
+
+async def mkt_info(
+    brokermod: ModuleType,
+    fqme: str,
+    **kwargs,
+
+) -> MktPair:
+    '''
+    Return MktPair info from broker including src and dst assets.
+
+    '''
+    async with open_cached_client(brokermod.name) as client:
+        assert client
+        return await brokermod.get_mkt_info(
+            fqme.replace(brokermod.name, '')
+        )

@@ -1,5 +1,5 @@
 # piker: trading gear for hackers
-# Copyright (C) 2018-present  Tyler Goodlet (in stewardship of piker0)
+# Copyright (C) Tyler Goodlet (in stewardship for pikers)
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -13,10 +13,10 @@
 
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-"""
+'''
 Pre-(path)-graphics formatted x/y nd/1d rendering subsystem.
 
-"""
+'''
 from __future__ import annotations
 from typing import (
     Optional,
@@ -39,7 +39,7 @@ if TYPE_CHECKING:
     from ._dataviz import (
         Viz,
     )
-    from .._profile import Profiler
+    from piker.toolz import Profiler
 
 
 class IncrementalFormatter(msgspec.Struct):

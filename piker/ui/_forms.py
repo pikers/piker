@@ -21,7 +21,6 @@ Text entry "forms" widgets (mostly for configuration and UI user input).
 from __future__ import annotations
 from contextlib import asynccontextmanager
 from functools import partial
-from math import floor
 from typing import (
     Any,
     Callable,

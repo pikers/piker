@@ -1,8 +1,5 @@
 # piker: trading gear for hackers
-# Copyright (C)
-#   Guillermo Rodriguez (aka ze jefe)
-#   Tyler Goodlet
-#   (in stewardship for pikers)
+# Copyright (C) Tyler Goodlet (in stewardship for pikers)
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -29,7 +26,7 @@ from decimal import Decimal
 
 from msgspec import field
 
-from piker.data.types import Struct
+from piker.types import Struct
 
 
 # API endpoint paths by venue / sub-API
@@ -65,7 +62,7 @@ MarketType = Literal[
     'spot',
     # 'margin',
     'usdtm_futes',
-    # 'coin_futes',
+    # 'coinm_futes',
 ]
 
 
@@ -87,6 +84,7 @@ def get_api_eps(venue: MarketType) -> tuple[str, str]:
 
 
 class Pair(Struct, frozen=True, kw_only=True):
+
     symbol: str
     status: str
     orderTypes: list[str]
@@ -120,6 +118,10 @@ class Pair(Struct, frozen=True, kw_only=True):
     def bs_fqme(self) -> str:
         return self.symbol
 
+    @property
+    def bs_mktid(self) -> str:
+        return f'{self.symbol}.{self.venue}'
+
 
 class SpotPair(Pair, frozen=True):
 
@@ -140,10 +142,24 @@ class SpotPair(Pair, frozen=True):
     allowedSelfTradePreventionModes: list[str]
     permissions: list[str]
 
+    # NOTE: see `.data._symcache.SymbologyCache.load()` for why
+    ns_path: str = 'piker.brokers.binance:SpotPair'
+
+    @property
+    def venue(self) -> str:
+        return 'SPOT'
+
     @property
     def bs_fqme(self) -> str:
         return f'{self.symbol}.SPOT'
 
+    @property
+    def bs_src_asset(self) -> str:
+        return f'{self.quoteAsset}'
+
+    @property
+    def bs_dst_asset(self) -> str:
+        return f'{self.baseAsset}'
 
 
 class FutesPair(Pair):
@@ -169,6 +185,9 @@ class FutesPair(Pair):
     underlyingSubType: list[str]  # ['PoW'],
     underlyingType: str  # 'COIN'
 
+    # NOTE: see `.data._symcache.SymbologyCache.load()` for why
+    ns_path: str = 'piker.brokers.binance:FutesPair'
+
     # NOTE: for compat with spot pairs and `MktPair.src: Asset`
     # processing..
     @property
@@ -176,32 +195,51 @@ class FutesPair(Pair):
         return self.quotePrecision
 
     @property
-    def bs_fqme(self) -> str:
+    def venue(self) -> str:
         symbol: str = self.symbol
         ctype: str = self.contractType
         margin: str = self.marginAsset
 
         match ctype:
             case 'PERPETUAL':
-                return f'{symbol}.{margin}M.PERP'
+                return f'{margin}M.PERP'
 
             case 'CURRENT_QUARTER':
-                pair, _, expiry = symbol.partition('_')
-                return f'{pair}.{margin}M.{expiry}'
+                _, _, expiry = symbol.partition('_')
+                return f'{margin}M.{expiry}'
 
             case '':
                 subtype: list[str] = self.underlyingSubType
                 if not subtype:
                     if self.status == 'PENDING_TRADING':
-                        return f'{symbol}.{margin}M.PENDING'
+                        return f'{margin}M.PENDING'
 
-                match subtype[0]:
-                    case 'DEFI':
-                        return f'{symbol}.{subtype}.PERP'
+                match subtype:
+                    case ['DEFI']:
+                        return f'{subtype[0]}.PERP'
 
         # XXX: yeah no clue then..
-        return f'{symbol}.WTF.PWNED.BBQ'
+        return 'WTF.PWNED.BBQ'
 
+    @property
+    def bs_fqme(self) -> str:
+        symbol: str = self.symbol
+        ctype: str = self.contractType
+        venue: str = self.venue
+
+        match ctype:
+            case 'CURRENT_QUARTER':
+                symbol, _, expiry = symbol.partition('_')
+
+        return f'{symbol}.{venue}'
+
+    @property
+    def bs_src_asset(self) -> str:
+        return f'{self.quoteAsset}'
+
+    @property
+    def bs_dst_asset(self) -> str:
+        return f'{self.baseAsset}.{self.venue}'
 
 
 PAIRTYPES: dict[MarketType, Pair] = {

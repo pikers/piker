@@ -27,13 +27,28 @@ from ._ems import (
     open_brokerd_dialog,
 )
 from ._util import OrderDialogs
+from ._messages import(
+    Order,
+    Status,
+    Cancel,
+
+    # TODO: deprecate these and replace end-2-end with
+    # client-side-dialog set above B)
+    # https://github.com/pikers/piker/issues/514
+    BrokerdPosition
+)
 
 
 __all__ = [
+    'FeeModel',
     'open_ems',
     'OrderClient',
     'open_brokerd_dialog',
     'OrderDialogs',
+    'Order',
+    'Status',
+    'Cancel',
+    'BrokerdPosition'
 
 ]
 

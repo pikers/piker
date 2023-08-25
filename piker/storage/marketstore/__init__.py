@@ -59,7 +59,6 @@ from anyio_marketstore import (  # noqa
     Params,
 )
 from piker.log import get_logger
-# from .._profile import Profiler
 
 
 log = get_logger(__name__)
@@ -205,7 +204,7 @@ class MktsStorageClient:
         #         break
         #     except purerpc.grpclib.exceptions.UnknownError as err:
         #         if 'snappy' in err.args:
-        #             await tractor.breakpoint()
+        #             await tractor.pause()
 
         #         # indicate there is no history for this timeframe
         #         log.exception(
@@ -233,7 +232,7 @@ class MktsStorageClient:
                     'YOUR DATABASE LIKELY CONTAINS BAD DATA FROM AN OLD BUG '
                     f'WIPING HISTORY FOR {ts}s'
                 )
-                await tractor.breakpoint()
+                await tractor.pause()
                 # await self.delete_ts(fqme, timeframe)
 
                 # try reading again..

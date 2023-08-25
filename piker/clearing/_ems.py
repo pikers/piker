@@ -27,7 +27,7 @@ from contextlib import asynccontextmanager as acm
 from decimal import Decimal
 from math import isnan
 from pprint import pformat
-import time
+from time import time_ns
 from types import ModuleType
 from typing import (
     AsyncIterator,
@@ -51,12 +51,13 @@ from ..accounting._mktinfo import (
     unpack_fqme,
     dec_digits,
 )
+from piker.types import Struct
 from ..ui._notify import notify_from_ems_status_msg
 from ..data import iterticks
-from ..data.types import Struct
 from ._messages import (
     Order,
     Status,
+    Error,
     BrokerdCancel,
     BrokerdOrder,
     # BrokerdOrderAck,
@@ -255,7 +256,7 @@ async def clear_dark_triggers(
                                 action=action,
                                 oid=oid,
                                 account=account,
-                                time_ns=time.time_ns(),
+                                time_ns=time_ns(),
                                 symbol=bfqme,
                                 price=submit_price,
                                 size=size,
@@ -268,7 +269,7 @@ async def clear_dark_triggers(
                     # fallthrough logic
                     status = Status(
                         oid=oid,  # ems dialog id
-                        time_ns=time.time_ns(),
+                        time_ns=time_ns(),
                         resp=resp,
                         req=cmd,
                         brokerd_msg=brokerd_msg,
@@ -826,8 +827,8 @@ async def translate_and_relay_brokerd_events(
                 # keep pps per account up to date locally in ``emsd`` mem
                 # sym, broker = pos_msg.symbol, pos_msg.broker
 
+                # NOTE: translate to a FQME!
                 relay.positions.setdefault(
-                    # NOTE: translate to a FQSN!
                     (broker, pos_msg.account),
                     {}
                 )[pos_msg.symbol] = pos_msg
@@ -883,7 +884,7 @@ async def translate_and_relay_brokerd_events(
                         BrokerdCancel(
                             oid=oid,
                             reqid=reqid,
-                            time_ns=time.time_ns(),
+                            time_ns=time_ns(),
                             account=status_msg.req.account,
                         )
                     )
@@ -898,38 +899,66 @@ async def translate_and_relay_brokerd_events(
                 continue
 
             # BrokerdError
+            # TODO: figure out how this will interact with EMS clients
+            # for ex. on an error do we react with a dark orders
+            # management response, like cancelling all dark orders?
+            # This looks like a supervision policy for pending orders on
+            # some unexpected failure - something we need to think more
+            # about.  In most default situations, with composed orders
+            # (ex.  brackets), most brokers seem to use a oca policy.
             case {
                 'name': 'error',
                 'oid': oid,  # ems order-dialog id
                 'reqid': reqid,  # brokerd generated order-request id
             }:
-                status_msg = book._active.get(oid)
+                if (
+                    not oid
+                ):
+                    oid: str = book._ems2brokerd_ids.inverse[reqid]
+
                 msg = BrokerdError(**brokerd_msg)
-                log.error(fmsg)  # XXX make one when it's blank?
 
-                # TODO: figure out how this will interact with EMS clients
-                # for ex. on an error do we react with a dark orders
-                # management response, like cancelling all dark orders?
-                # This looks like a supervision policy for pending orders on
-                # some unexpected failure - something we need to think more
-                # about.  In most default situations, with composed orders
-                # (ex.  brackets), most brokers seem to use a oca policy.
-
-                # only relay to client side if we have an active
-                # ongoing dialog
-                if status_msg:
+                # NOTE: retreive the last client-side response
+                # OR create an error when we have no last msg /dialog
+                # on record
+                status_msg: Status
+                if not (status_msg := book._active.get(oid)):
+                    status_msg = Error(
+                        time_ns=time_ns(),
+                        oid=oid,
+                        reqid=reqid,
+                        brokerd_msg=msg,
+                    )
+                else:
+                    # only modify last status if we have an active
+                    # ongoing dialog..
                     status_msg.resp = 'error'
                     status_msg.brokerd_msg = msg
-                    book._active[oid] = status_msg
 
-                    await router.client_broadcast(
-                        status_msg.req.symbol,
-                        status_msg,
+                book._active[oid] = status_msg
+
+                log.error(
+                    'Translating brokerd error to status:\n'
+                    f'{fmsg}'
+                    f'{status_msg.to_dict()}'
+                )
+                if req := status_msg.req:
+                    fqme: str = req.symbol
+                else:
+                    bdmsg: Struct = status_msg.brokerd_msg
+                    fqme: str = (
+                        bdmsg.symbol  # might be None
+                        or
+                        bdmsg.broker_details['flow']
+                        # NOTE: what happens in empty case in the
+                        # broadcast below? it's a problem?
+                        .get('symbol', '')
                     )
 
-                else:
-                    log.error(f'Error for unknown order flow:\n{msg}')
-                    continue
+                await router.client_broadcast(
+                    fqme,
+                    status_msg,
+                )
 
             # BrokerdStatus
             case {
@@ -1070,7 +1099,7 @@ async def translate_and_relay_brokerd_events(
                     status_msg.req = order
 
                     assert status_msg.src  # source tag?
-                    oid = str(status_msg.reqid)
+                    oid: str = str(status_msg.reqid)
 
                     # attempt to avoid collisions
                     status_msg.reqid = oid
@@ -1087,38 +1116,28 @@ async def translate_and_relay_brokerd_events(
                         status_msg,
                     )
 
-                # don't fall through
-                continue
-
-            # brokerd error
-            case {
-                'name': 'status',
-                'status': 'error',
-            }:
-                log.error(f'Broker error:\n{fmsg}')
-                # XXX: we presume the brokerd cancels its own order
-                continue
-
             # TOO FAST ``BrokerdStatus`` that arrives
             # before the ``BrokerdAck``.
+            # NOTE XXX: sometimes there is a race with the backend (like
+            # `ib` where the pending status will be relayed *before*
+            # the ack msg, in which case we just ignore the faster
+            # pending msg and wait for our expected ack to arrive
+            # later (i.e. the first block below should enter).
             case {
-                # XXX: sometimes there is a race with the backend (like
-                # `ib` where the pending stauts will be related before
-                # the ack, in which case we just ignore the faster
-                # pending msg and wait for our expected ack to arrive
-                # later (i.e. the first block below should enter).
                 'name': 'status',
                 'status': status,
                 'reqid': reqid,
             }:
-                oid = book._ems2brokerd_ids.inverse.get(reqid)
-                msg = f'Unhandled broker status for dialog {reqid}:\n'
-                if oid:
-                    status_msg = book._active.get(oid)
-                    # status msg may not have been set yet or popped?
+                msg = (
+                    f'Unhandled broker status for dialog {reqid}:\n'
+                    f'{pformat(brokerd_msg)}'
+                )
+                if (
+                    oid := book._ems2brokerd_ids.inverse.get(reqid)
+                ):
                     # NOTE: have seen a key error here on kraken
                     # clearable limits..
-                    if status_msg:
+                    if status_msg := book._active.get(oid):
                         msg += (
                             f'last status msg: {pformat(status_msg)}\n\n'
                             f'this msg:{fmsg}\n'
@@ -1214,7 +1233,7 @@ async def process_client_order_cmds(
                         BrokerdCancel(
                             oid=oid,
                             reqid=reqid,
-                            time_ns=time.time_ns(),
+                            time_ns=time_ns(),
                             account=order.account,
                         )
                     )
@@ -1289,7 +1308,7 @@ async def process_client_order_cmds(
 
                 msg = BrokerdOrder(
                     oid=oid,  # no ib support for oids...
-                    time_ns=time.time_ns(),
+                    time_ns=time_ns(),
 
                     # if this is None, creates a new order
                     # otherwise will modify any existing one
@@ -1307,7 +1326,7 @@ async def process_client_order_cmds(
                         oid=oid,
                         reqid=reqid,
                         resp='pending',
-                        time_ns=time.time_ns(),
+                        time_ns=time_ns(),
                         brokerd_msg=msg,
                         req=req,
                     )
@@ -1424,7 +1443,7 @@ async def process_client_order_cmds(
                 status = Status(
                     resp=resp,
                     oid=oid,
-                    time_ns=time.time_ns(),
+                    time_ns=time_ns(),
                     req=req,
                     src='dark',
                 )

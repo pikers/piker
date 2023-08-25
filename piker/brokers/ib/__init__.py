@@ -30,23 +30,33 @@ from .api import (
 )
 from .feed import (
     open_history_client,
-    open_symbol_search,
     stream_quotes,
 )
 from .broker import (
     open_trade_dialog,
 )
 from .ledger import (
+    norm_trade,
     norm_trade_records,
+    tx_sort,
+)
+from .symbols import (
+    get_mkt_info,
+    open_symbol_search,
+    _search_conf,
 )
 
 __all__ = [
     'get_client',
+    'get_mkt_info',
+    'norm_trade',
     'norm_trade_records',
     'open_trade_dialog',
     'open_history_client',
     'open_symbol_search',
     'stream_quotes',
+    '_search_conf',
+    'tx_sort',
 ]
 
 _brokerd_mods: list[str] = [
@@ -56,6 +66,7 @@ _brokerd_mods: list[str] = [
 
 _datad_mods: list[str] = [
     'feed',
+    'symbols',
 ]
 
 
@@ -75,3 +86,8 @@ _spawn_kwargs = {
 # know if ``brokerd`` should be spawned with
 # ``tractor``'s aio mode.
 _infect_asyncio: bool = True
+
+# XXX NOTE: for now we disable symcache with this backend since
+# there is no clearly simple nor practical way to download "all
+# symbology info" for all supported venues..
+_no_symcache: bool = True

@@ -30,7 +30,7 @@ from PyQt5.QtWidgets import (
     QGraphicsSceneMouseEvent as gs_mouse,
 )
 
-from ..data.types import Struct
+from piker.types import Struct
 
 
 MOUSE_EVENTS = {

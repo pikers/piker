@@ -28,6 +28,7 @@ from ..service import maybe_spawn_brokerd
 from . import _event
 from ._exec import run_qtractor
 from ..data.feed import install_brokerd_search
+from ..data._symcache import open_symcache
 from ..accounting import unpack_fqme
 from . import _search
 from ._chart import GodWidget
@@ -56,7 +57,13 @@ async def load_provider_search(
             portal,
             brokermod,
         ),
+        open_symcache(brokermod) as symcache,
     ):
+        if not symcache.mktmaps:
+            log.warning(
+                f'BACKEND DOES NOT (yet) support symcaching: `{brokermod.name}`'
+            )
+
         # keep search engine stream up until cancelled
         await trio.sleep_forever()
 
@@ -99,6 +106,8 @@ async def _async_main(
     sbar = godwidget.window.status_bar
     starting_done = sbar.open_status('starting ze sexy chartz')
 
+    # NOTE: by default we load all "builtin" backends for search
+    # and that includes loading their symcaches if possible B)
     needed_brokermods: dict[str, ModuleType] = {}
     for fqme in syms:
         brokername, *_ = unpack_fqme(fqme)

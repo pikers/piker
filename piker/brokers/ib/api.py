@@ -24,26 +24,26 @@ from contextlib import (
     contextmanager as cm,
 )
 from contextlib import AsyncExitStack
-from dataclasses import asdict, astuple
+from dataclasses import (
+    asdict,
+    astuple,
+)
 from datetime import datetime
 from functools import (
     partial,
-    # lru_cache,
 )
 import itertools
 from math import isnan
-from typing import (
-    Any,
-    Callable,
-    Optional,
-    Union,
-)
 import asyncio
 from pprint import pformat
 import inspect
 import time
+from typing import (
+    Any,
+    Callable,
+    Union,
+)
 from types import SimpleNamespace
-
 
 from bidict import bidict
 import trio
@@ -55,27 +55,20 @@ from ib_insync import (
     client as ib_client,
     IB,
     Contract,
+    ContractDetails,
     Crypto,
     Commodity,
     Forex,
     Future,
     ContFuture,
     Stock,
-)
-from ib_insync.contract import (
-    ContractDetails,
-    Option,
-)
-from ib_insync.order import Order
-from ib_insync.ticker import Ticker
-from ib_insync.objects import (
+    Order,
+    Ticker,
     BarDataList,
     Position,
     Fill,
-    Execution,
-    CommissionReport,
-)
-from ib_insync.wrapper import (
+    # Execution,
+    # CommissionReport,
     Wrapper,
     RequestError,
 )
@@ -85,6 +78,14 @@ import numpy as np
 # non-relative for backends so that non-builting backends
 # can be easily modelled after this style B)
 from piker import config
+from piker.accounting import MktPair
+from .symbols import (
+    con2fqme,
+    parse_patt2fqme,
+    _adhoc_symbol_map,
+    _exch_skip_list,
+    _futes_venues,
+)
 from ._util import (
     log,
     # only for the ib_sync internal logging
@@ -129,15 +130,6 @@ _bar_sizes = {
 }
 
 _show_wap_in_history: bool = False
-
-# optional search config the backend can register for
-# it's symbol search handling (in this case we avoid
-# accepting patterns before the kb has settled more then
-# a quarter second).
-_search_conf = {
-    'pause_period': 6 / 16,
-}
-
 
 # overrides to sidestep pretty questionable design decisions in
 # ``ib_insync``:
@@ -196,120 +188,6 @@ class NonShittyIB(IB):
 
         # self.errorEvent += self._onError
         self.client.apiEnd += self.disconnectedEvent
-
-
-_futes_venues = (
-    'GLOBEX',
-    'NYMEX',
-    'CME',
-    'CMECRYPTO',
-    'COMEX',
-    # 'CMDTY',  # special name case..
-    'CBOT',  # (treasury) yield futures
-)
-
-_adhoc_cmdty_set = {
-    # metals
-    # https://misc.interactivebrokers.com/cstools/contract_info/v3.10/index.php?action=Conid%20Info&wlId=IB&conid=69067924
-    'xauusd.cmdty',  # london gold spot ^
-    'xagusd.cmdty',  # silver spot
-}
-
-# NOTE: if you aren't seeing one of these symbol's futues contracts
-# show up, it's likely the `.<venue>` part is wrong!
-_adhoc_futes_set = {
-
-    # equities
-    'nq.cme',
-    'mnq.cme',  # micro
-
-    'es.cme',
-    'mes.cme',  # micro
-
-    # cypto$
-    'brr.cme',
-    'mbt.cme',  # micro
-    'ethusdrr.cme',
-
-    # agriculture
-    'he.comex',  # lean hogs
-    'le.comex',  # live cattle (geezers)
-    'gf.comex',  # feeder cattle (younguns)
-
-    # raw
-    'lb.comex',  # random len lumber
-
-    'gc.comex',
-    'mgc.comex',  # micro
-
-    # oil & gas
-    'cl.nymex',
-
-    'ni.comex',  # silver futes
-    'qi.comex',  # mini-silver futes
-
-    # treasury yields
-    # etfs by duration:
-    # SHY -> IEI -> IEF -> TLT
-    'zt.cbot',  # 2y
-    'z3n.cbot',  # 3y
-    'zf.cbot',  # 5y
-    'zn.cbot',  # 10y
-    'zb.cbot',  # 30y
-
-    # (micros of above)
-    '2yy.cbot',
-    '5yy.cbot',
-    '10y.cbot',
-    '30y.cbot',
-}
-
-
-# taken from list here:
-# https://www.interactivebrokers.com/en/trading/products-spot-currencies.php
-_adhoc_fiat_set = set((
-    'USD, AED, AUD, CAD,'
-    'CHF, CNH, CZK, DKK,'
-    'EUR, GBP, HKD, HUF,'
-    'ILS, JPY, MXN, NOK,'
-    'NZD, PLN, RUB, SAR,'
-    'SEK, SGD, TRY, ZAR'
-    ).split(' ,')
-)
-
-
-# map of symbols to contract ids
-_adhoc_symbol_map = {
-    # https://misc.interactivebrokers.com/cstools/contract_info/v3.10/index.php?action=Conid%20Info&wlId=IB&conid=69067924
-
-    # NOTE: some cmdtys/metals don't have trade data like gold/usd:
-    # https://groups.io/g/twsapi/message/44174
-    'XAUUSD': ({'conId': 69067924}, {'whatToShow': 'MIDPOINT'}),
-}
-for qsn in _adhoc_futes_set:
-    sym, venue = qsn.split('.')
-    assert venue.upper() in _futes_venues, f'{venue}'
-    _adhoc_symbol_map[sym.upper()] = (
-        {'exchange': venue},
-        {},
-    )
-
-
-# exchanges we don't support at the moment due to not knowing
-# how to do symbol-contract lookup correctly likely due
-# to not having the data feeds subscribed.
-_exch_skip_list = {
-
-    'ASX',  # aussie stocks
-    'MEXI',  # mexican stocks
-
-    # no idea
-    'VALUE',
-    'FUNDSERV',
-    'SWB2',
-    'PSE',
-    'PHLX',
-}
 
 _enters = 0
 
@@ -380,7 +258,13 @@ class Client:
     Note: this client requires running inside an ``asyncio`` loop.
 
     '''
+    # keyed by fqmes
     _contracts: dict[str, Contract] = {}
+    # keyed by conId
+    _cons: dict[str, Contract] = {}
+
+    # for going between ib and piker types
+    _cons2mkts: bidict[Contract, MktPair] = bidict({})
 
     def __init__(
         self,
@@ -394,31 +278,20 @@ class Client:
         # as needed throughout this backend (eg. vnc sockaddr).
         self.conf = config
 
-        self.ib = ib
-        self.ib.RaiseRequestErrors = True
-
-        # contract cache
-        self._cons: dict[str, Contract] = {}
-
         # NOTE: the ib.client here is "throttled" to 45 rps by default
+        self.ib = ib
+        self.ib.RaiseRequestErrors: bool = True
 
-    async def trades(self) -> dict[str, Any]:
+    async def get_fills(self) -> list[Fill]:
         '''
-        Return list of trade-fills from current session in ``dict``.
+        Return list of rents `Fills` from trading session.
+
+        In theory this can be configured for dumping clears from multiple
+        days but can't member where to set that..
 
         '''
         fills: list[Fill] = self.ib.fills()
-        norm_fills: list[dict] = []
-        for fill in fills:
-            fill = fill._asdict()  # namedtuple
-            for key, val in fill.items():
-                match val:
-                    case Contract() | Execution() | CommissionReport():
-                        fill[key] = asdict(val)
-
-            norm_fills.append(fill)
-
-        return norm_fills
+        return fills
 
     async def orders(self) -> list[Order]:
         return await self.ib.reqAllOpenOrdersAsync(
@@ -464,7 +337,7 @@ class Client:
 
         _enters += 1
 
-        contract = (await self.find_contracts(fqme))[0]
+        contract: Contract = (await self.find_contracts(fqme))[0]
         bars_kwargs.update(getattr(contract, 'bars_kwargs', {}))
 
         bars = await self.ib.reqHistoricalDataAsync(
@@ -541,14 +414,14 @@ class Client:
 
     ) -> dict[str, ContractDetails]:
 
-        futs = []
+        futs: list[asyncio.Future] = []
         for con in contracts:
             if con.primaryExchange not in _exch_skip_list:
                 futs.append(self.ib.reqContractDetailsAsync(con))
 
         # batch request all details
         try:
-            results = await asyncio.gather(*futs)
+            results: list[ContractDetails] = await asyncio.gather(*futs)
         except RequestError as err:
             msg = err.message
             if (
@@ -558,7 +431,7 @@ class Client:
                 return {}
 
         # one set per future result
-        details = {}
+        details: dict[str, ContractDetails] = {}
         for details_set in results:
 
             # XXX: if there is more then one entry in the details list
@@ -573,26 +446,28 @@ class Client:
 
         return details
 
-    async def search_stocks(
+    async def search_contracts(
         self,
         pattern: str,
         upto: int = 3,  # how many contracts to search "up to"
 
     ) -> dict[str, ContractDetails]:
         '''
-        Search for stocks matching provided ``str`` pattern.
+        Search for ``Contract``s matching provided ``str`` pattern.
 
-        Return a dictionary of ``upto`` entries worth of contract details.
+        Return a dictionary of ``upto`` entries worth of ``ContractDetails``.
 
         '''
-        descriptions = await self.ib.reqMatchingSymbolsAsync(pattern)
-
-        if descriptions is None:
+        descrs: list[ContractDetails] = (
+            await self.ib.reqMatchingSymbolsAsync(pattern)
+        )
+        if descrs is None:
             return {}
 
-        # limit
-        descrs = descriptions[:upto]
-        return await self.con_deats([d.contract for d in descrs])
+        return await self.con_deats(
+            # limit to first ``upto`` entries
+            [d.contract for d in descrs[:upto]]
+        )
 
     async def search_symbols(
         self,
@@ -606,7 +481,7 @@ class Client:
         # TODO add search though our adhoc-locally defined symbol set
         # for futes/cmdtys/
         try:
-            results = await self.search_stocks(
+            results = await self.search_contracts(
                 pattern,
                 upto=upto,
             )
@@ -690,7 +565,8 @@ class Client:
 
     ) -> Contract:
         '''
-        Get an unqualifed contract for the current "continous" future.
+        Get an unqualifed contract for the current "continous"
+        future.
 
         '''
         # it's the "front" contract returned here
@@ -709,8 +585,8 @@ class Client:
 
         return con
 
-    # TODO: make this work with our `MethodProxy`..
-    # @lru_cache(maxsize=None)
+    # TODO: is this a better approach?
+    # @async_lifo_cache()
     async def get_con(
         self,
         conid: int,
@@ -721,92 +597,39 @@ class Client:
             con: Contract = await self.ib.qualifyContractsAsync(
                 Contract(conId=conid)
             )
-            self._cons[conid] = con
+            self._cons[str(conid)] = con[0]
             return con
-
-    def parse_patt2fqme(
-        self,
-        pattern: str,
-
-    ) -> tuple[str, str, str, str]:
-
-        # TODO: we can't use this currently because
-        # ``wrapper.starTicker()`` currently cashes ticker instances
-        # which means getting a singel quote will potentially look up
-        # a quote for a ticker that it already streaming and thus run
-        # into state clobbering (eg. list: Ticker.ticks). It probably
-        # makes sense to try this once we get the pub-sub working on
-        # individual symbols...
-
-        # XXX UPDATE: we can probably do the tick/trades scraping
-        # inside our eventkit handler instead to bypass this entirely?
-
-        currency = ''
-
-        # fqme parsing stage
-        # ------------------
-        if '.ib' in pattern:
-            from piker.accounting import unpack_fqme
-            _, symbol, venue, expiry = unpack_fqme(pattern)
-
-        else:
-            symbol = pattern
-            expiry = ''
-
-        # another hack for forex pairs lul.
-        if (
-            '.idealpro' in symbol
-            # or '/' in symbol
-        ):
-            exch = 'IDEALPRO'
-            symbol = symbol.removesuffix('.idealpro')
-            if '/' in symbol:
-                symbol, currency = symbol.split('/')
-
-        else:
-            # TODO: yes, a cache..
-            # try:
-            #     # give the cache a go
-            #     return self._contracts[symbol]
-            # except KeyError:
-            #     log.debug(f'Looking up contract for {symbol}')
-            expiry: str = ''
-            if symbol.count('.') > 1:
-                symbol, _, expiry = symbol.rpartition('.')
-
-            # use heuristics to figure out contract "type"
-            symbol, exch = symbol.upper().rsplit('.', maxsplit=1)
-
-        return symbol, currency, exch, expiry
 
     async def find_contracts(
         self,
-        pattern: Optional[str] = None,
-        contract: Optional[Contract] = None,
+        pattern: str | None = None,
+        contract: Contract | None = None,
         qualify: bool = True,
         err_on_qualify: bool = True,
 
     ) -> Contract:
 
         if pattern is not None:
-            symbol, currency, exch, expiry = self.parse_patt2fqme(
+            symbol, currency, exch, expiry = parse_patt2fqme(
                 pattern,
             )
-            sectype = ''
+            sectype: str = ''
+            exch: str = exch.upper()
 
         else:
             assert contract
-            symbol = contract.symbol
-            sectype = contract.secType
-            exch = contract.exchange or contract.primaryExchange
-            expiry = contract.lastTradeDateOrContractMonth
-            currency = contract.currency
+            symbol: str = contract.symbol
+            sectype: str = contract.secType
+            exch: str = contract.exchange or contract.primaryExchange
+            expiry: str = contract.lastTradeDateOrContractMonth
+            currency: str = contract.currency
 
         # contract searching stage
         # ------------------------
 
-        # futes
-        if exch in _futes_venues:
+        # futes, ensure exch/venue is uppercase for matching
+        # our adhoc set.
+        if exch.upper() in _futes_venues:
             if expiry:
                 # get the "front" contract
                 con = await self.get_fute(
@@ -827,12 +650,14 @@ class Client:
             exch in {'IDEALPRO'}
             or sectype == 'CASH'
         ):
-            # if '/' in symbol:
-            #     currency = ''
-            #     symbol, currency = symbol.split('/')
+            pair: str = symbol
+            if '/' in symbol:
+                src, dst = symbol.split('/')
+                pair: str = ''.join([src, dst])
+
             con = Forex(
-                pair=''.join((symbol, currency)),
-                currency=currency,
+                pair=pair,
+                currency='',
             )
             con.bars_kwargs = {'whatToShow': 'MIDPOINT'}
 
@@ -874,10 +699,12 @@ class Client:
             )
             exch = 'SMART' if not exch else exch
 
-        contracts = [con]
+        contracts: list[Contract] = [con]
         if qualify:
             try:
-                contracts = await self.ib.qualifyContractsAsync(con)
+                contracts: list[Contract] = (
+                    await self.ib.qualifyContractsAsync(con)
+                )
             except RequestError as err:
                 msg = err.message
                 if (
@@ -895,14 +722,21 @@ class Client:
 
         # pack all contracts into cache
         for tract in contracts:
-            exch: str = tract.primaryExchange or tract.exchange or exch
-            pattern = f'{symbol}.{exch}'
-            expiry = tract.lastTradeDateOrContractMonth
+            exch: str = (
+                tract.primaryExchange
+                or tract.exchange
+                or exch
+            )
+            pattern: str = f'{symbol}.{exch}'
+            expiry: str = tract.lastTradeDateOrContractMonth
             # add an entry with expiry suffix if available
             if expiry:
                 pattern += f'.{expiry}'
 
-            self._contracts[pattern.lower()] = tract
+            # directly cache the input pattern to the output
+            # contract match as well as by the IB-internal conId.
+            self._contracts[pattern] = tract
+            self._cons[str(tract.conId)] = tract
 
         return contracts
 
@@ -925,21 +759,21 @@ class Client:
 
     async def get_sym_details(
         self,
-        symbol: str,
+        fqme: str,
 
     ) -> tuple[
         Contract,
         ContractDetails,
     ]:
         '''
-        Get summary (meta) data for a given symbol str including
-        ``Contract`` and its details and a (first snapshot of the)
-        ``Ticker``.
+        Return matching contracts for a given ``fqme: str`` including
+        ``Contract`` and matching ``ContractDetails``.
 
         '''
-        contract = (await self.find_contracts(symbol))[0]
-        details_fute = self.ib.reqContractDetailsAsync(contract)
-        details = (await details_fute)[0]
+        contract: Contract = (await self.find_contracts(fqme))[0]
+        details: ContractDetails = (
+            await self.ib.reqContractDetailsAsync(contract)
+        )[0]
         return contract, details
 
     async def get_quote(
@@ -1012,7 +846,7 @@ class Client:
 
         '''
         try:
-            contract = self._contracts[symbol]
+            con: Contract = self._contracts[symbol]
         except KeyError:
             # require that the symbol has been previously cached by
             # a data feed request - ensure we aren't making orders
@@ -1021,7 +855,7 @@ class Client:
 
         try:
             trade = self.ib.placeOrder(
-                contract,
+                con,
                 Order(
                     orderId=reqid or 0,  # stupid api devs..
                     action=action.upper(),  # BUY/SELL
@@ -1078,32 +912,30 @@ class Client:
             reqId: int,
             errorCode: int,
             errorString: str,
-            contract: Contract,
+            con: Contract,
 
         ) -> None:
 
-            reason = errorString
+            reason: str = errorString
 
             if reqId == -1:
                 # it's a general event?
-                key = 'event'
+                key: str = 'event'
                 log.info(errorString)
 
             else:
-                key = 'error'
+                key: str = 'error'
                 log.error(errorString)
 
             try:
                 to_trio.send_nowait((
                     key,
-
-                    # error "object"
                     {
                         'type': key,
                         'reqid': reqId,
                         'reason': reason,
                         'error_code': errorCode,
-                        'contract': contract,
+                        'contract': con,
                     }
                 ))
             except trio.BrokenResourceError:
@@ -1140,80 +972,6 @@ class Client:
         Retrieve position info for ``account``.
         """
         return self.ib.positions(account=account)
-
-
-def con2fqme(
-    con: Contract,
-    _cache: dict[int, (str, bool)] = {}
-
-) -> tuple[str, bool]:
-    '''
-    Convert contracts to fqme-style strings to be used both in symbol-search
-    matching and as feed tokens passed to the front end data deed layer.
-
-    Previously seen contracts are cached by id.
-
-    '''
-    # should be real volume for this contract by default
-    calc_price = False
-    if con.conId:
-        try:
-            return _cache[con.conId]
-        except KeyError:
-            pass
-
-    suffix = con.primaryExchange or con.exchange
-    symbol = con.symbol
-    expiry = con.lastTradeDateOrContractMonth or ''
-
-    match con:
-        case Option():
-            # TODO: option symbol parsing and sane display:
-            symbol = con.localSymbol.replace(' ', '')
-
-        case (
-            Commodity()
-            # search API endpoint returns std con box..
-            | Contract(secType='CMDTY')
-        ):
-            # commodities and forex don't have an exchange name and
-            # no real volume so we have to calculate the price
-            suffix = con.secType
-
-            # no real volume on this tract
-            calc_price = True
-
-        case Forex() | Contract(secType='CASH'):
-            dst, src = con.localSymbol.split('.')
-            symbol = ''.join([dst, src])
-            suffix = con.exchange or 'idealpro'
-
-            # no real volume on forex feeds..
-            calc_price = True
-
-    if not suffix:
-        entry = _adhoc_symbol_map.get(
-            con.symbol or con.localSymbol
-        )
-        if entry:
-            meta, kwargs = entry
-            cid = meta.get('conId')
-            if cid:
-                assert con.conId == meta['conId']
-            suffix = meta['exchange']
-
-    # append a `.<suffix>` to the returned symbol
-    # key for derivatives that normally is the expiry
-    # date key.
-    if expiry:
-        suffix += f'.{expiry}'
-
-    fqme_key = symbol.lower()
-    if suffix:
-        fqme_key = '.'.join((fqme_key, suffix)).lower()
-
-    _cache[con.conId] = fqme_key, calc_price
-    return fqme_key, calc_price
 
 
 # per-actor API ep caching

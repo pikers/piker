@@ -21,17 +21,21 @@ for tendiez.
 '''
 from ..log import get_logger
 
-from ._ledger import (
+from .calc import (
     iter_by_dt,
+)
+from ._ledger import (
     Transaction,
     TransactionLedger,
     open_trade_ledger,
 )
 from ._pos import (
-    load_pps_from_ledger,
+    Account,
+    load_account,
+    load_account_from_ledger,
     open_pps,
+    open_account,
     Position,
-    PpTable,
 )
 from ._mktinfo import (
     Asset,
@@ -47,22 +51,25 @@ from ._allocate import (
     Allocator,
 )
 
+
 log = get_logger(__name__)
 
 __all__ = [
+    'Account',
     'Allocator',
     'Asset',
     'MktPair',
     'Position',
-    'PpTable',
     'Symbol',
     'Transaction',
     'TransactionLedger',
     'dec_digits',
     'digits_to_dec',
     'iter_by_dt',
-    'load_pps_from_ledger',
+    'load_account',
+    'load_account_from_ledger',
     'mk_allocator',
+    'open_account',
     'open_pps',
     'open_trade_ledger',
     'unpack_fqme',
@@ -82,7 +89,7 @@ def get_likely_pair(
 
     '''
     try:
-        src_name_start = bs_mktid.rindex(src)
+        src_name_start: str = bs_mktid.rindex(src)
     except (
         ValueError,   # substr not found
     ):
@@ -93,25 +100,8 @@ def get_likely_pair(
         # log.warning(
         #     f'No src fiat {src} found in {bs_mktid}?'
         # )
-        return
+        return None
 
-    likely_dst = bs_mktid[:src_name_start]
+    likely_dst: str = bs_mktid[:src_name_start]
     if likely_dst == dst:
         return bs_mktid
-
-
-if __name__ == '__main__':
-    import sys
-    from pprint import pformat
-
-    args = sys.argv
-    assert len(args) > 1, 'Specifiy account(s) from `brokers.toml`'
-    args = args[1:]
-    for acctid in args:
-        broker, name = acctid.split('.')
-        trans, updated_pps = load_pps_from_ledger(broker, name)
-        print(
-            f'Processing transactions into pps for {broker}:{acctid}\n'
-            f'{pformat(trans)}\n\n'
-            f'{pformat(updated_pps)}'
-        )

@@ -18,6 +18,7 @@ Data feed synchronization protocols, init msgs, and general
 data-provider-backend-agnostic schema definitions.
 
 '''
+from __future__ import annotations
 from decimal import Decimal
 from pprint import pformat
 from types import ModuleType
@@ -28,8 +29,8 @@ from typing import (
 
 from msgspec import field
 
-from .types import Struct
-from ..accounting import (
+from piker.types import Struct
+from piker.accounting import (
     Asset,
     MktPair,
 )
@@ -81,8 +82,8 @@ _eps: dict[str, list[str]] = {
     # live order control and trading
     'brokerd': [
         'trades_dialogue',
-        # TODO: ledger normalizer helper?
-        # norm_trades(records: dict[str, Any]) -> TransactionLedger)
+        'open_trade_dialog',  # live order ctl
+        'norm_trade', # ledger normalizer for txns
     ],
 }
 

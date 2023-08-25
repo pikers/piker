@@ -67,7 +67,6 @@ from piker import config
 from piker.data import def_iohlcv_fields
 from piker.data import ShmArray
 from piker.log import get_logger
-# from .._profile import Profiler
 
 
 log = get_logger('storage.nativedb')
@@ -187,7 +186,7 @@ class NativeStorageClient:
 
     def index_files(self):
         for path in self._datadir.iterdir():
-            if 'borked' in path.name:
+            if path.name in {'borked', 'expired',}:
                 continue
 
             key: str = path.name.rstrip('.parquet')

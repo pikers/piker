@@ -36,16 +36,27 @@ from tractor.trionics import maybe_open_context
 import trio
 from trio_typing import TaskStatus
 
-from piker.data.types import Struct
-from ._axes import PriceAxis
-from ..calc import humanize
-from ..data._sharedmem import (
+from piker.accounting import MktPair
+from piker.fsp import (
+    cascade,
+    maybe_mk_fsp_shm,
+    Fsp,
+    dolla_vlm,
+    flow_rates,
+)
+from piker.data import (
+    Flume,
     ShmArray,
+)
+from piker.data._sharedmem import (
     _Token,
     try_read,
 )
-from ..data.feed import Flume
-from ..accounting import MktPair
+from piker.log import get_logger
+from piker.toolz import Profiler
+from piker.types import Struct
+from ._axes import PriceAxis
+from ..calc import humanize
 from ._chart import (
     ChartPlotWidget,
     LinkedSplits,
@@ -55,18 +66,6 @@ from ._forms import (
     mk_form,
     open_form_input_handling,
 )
-from ..fsp._api import (
-    maybe_mk_fsp_shm,
-    Fsp,
-)
-from ..fsp import cascade
-from ..fsp._volume import (
-    # tina_vwap,
-    dolla_vlm,
-    flow_rates,
-)
-from ..log import get_logger
-from .._profile import Profiler
 
 log = get_logger(__name__)
 
@@ -283,6 +282,7 @@ async def run_fsp_ui(
             name,
             array_key=array_key,
         )
+        assert chart.qframe
 
         chart.linked.focus()
 

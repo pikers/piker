@@ -717,7 +717,7 @@ async def sample_and_broadcast(
                     if cs.cancelled_caught:
                         lags += 1
                         if lags > 10:
-                            await tractor.breakpoint()
+                            await tractor.pause()
 
                 except (
                     trio.BrokenResourceError,

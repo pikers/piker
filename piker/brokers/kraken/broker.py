@@ -24,7 +24,6 @@ from contextlib import (
 )
 from functools import partial
 from itertools import count
-import math
 from pprint import pformat
 import time
 from typing import (
@@ -35,21 +34,16 @@ from typing import (
 )
 
 from bidict import bidict
-import pendulum
 import trio
 import tractor
 
 from piker.accounting import (
     Position,
-    PpTable,
+    Account,
     Transaction,
     TransactionLedger,
     open_trade_ledger,
-    open_pps,
-    get_likely_pair,
-)
-from piker.accounting._mktinfo import (
-    MktPair,
+    open_account,
 )
 from piker.clearing import(
     OrderDialogs,
@@ -65,17 +59,23 @@ from piker.clearing._messages import (
     BrokerdPosition,
     BrokerdStatus,
 )
+from piker.brokers import (
+    open_cached_client,
+)
+from piker.data import open_symcache
 from .api import (
     log,
     Client,
     BrokerError,
-    get_client,
 )
 from .feed import (
-    get_mkt_info,
     open_autorecon_ws,
     NoBsWs,
     stream_messages,
+)
+from .ledger import (
+    norm_trade_records,
+    verify_balances,
 )
 
 MsgUnion = Union[
@@ -371,7 +371,8 @@ async def subscribe(
 
 
 def trades2pps(
-    table: PpTable,
+    acnt: Account,
+    ledger: TransactionLedger,
     acctid: str,
     new_trans: dict[str, Transaction] = {},
 
@@ -379,13 +380,14 @@ def trades2pps(
 
 ) -> list[BrokerdPosition]:
     if new_trans:
-        updated = table.update_from_trans(
+        updated = acnt.update_from_ledger(
             new_trans,
+            symcache=ledger.symcache,
         )
         log.info(f'Updated pps:\n{pformat(updated)}')
 
-    pp_entries, closed_pp_objs = table.dump_active()
-    pp_objs: dict[Union[str, int], Position] = table.pps
+    pp_entries, closed_pp_objs = acnt.dump_active()
+    pp_objs: dict[Union[str, int], Position] = acnt.pps
 
     pps: dict[int, Position]
     position_msgs: list[dict] = []
@@ -399,7 +401,7 @@ def trades2pps(
                 # backend suffix prefixed but when
                 # reading accounts from ledgers we
                 # don't need it and/or it's prefixed
-                # in the section table.. we should
+                # in the section acnt.. we should
                 # just strip this from the message
                 # right since `.broker` is already
                 # included?
@@ -416,7 +418,7 @@ def trades2pps(
         # as little as possible. we need to either do
         # these writes in another actor, or try out `trio`'s
         # async file IO api?
-        table.write_config()
+        acnt.write_config()
 
     return position_msgs
 
@@ -427,7 +429,12 @@ async def open_trade_dialog(
 
 ) -> AsyncIterator[dict[str, Any]]:
 
-    async with get_client() as client:
+    async with (
+        # TODO: maybe bind these together and deliver
+        # a tuple from `.open_cached_client()`?
+        open_cached_client('kraken') as client,
+        open_symcache('kraken') as symcache,
+    ):
         # make ems flip to paper mode when no creds setup in
         # `brokers.toml` B0
         if not client._api_key:
@@ -457,8 +464,8 @@ async def open_trade_dialog(
         # - delete the *ABSOLUTE LAST* entry from account's corresponding
         #   trade ledgers file (NOTE this MUST be the last record
         #   delivered from the api ledger),
-        # - open you ``pps.toml`` and find that same tid and delete it
-        #   from the pp's clears table,
+        # - open you ``account.kraken.spot.toml`` and find that
+        #   same tid and delete it from the pos's clears table,
         # - set this flag to `True`
         #
         # You should see an update come in after the order mode
@@ -469,172 +476,83 @@ async def open_trade_dialog(
         # update things correctly.
         simulate_pp_update: bool = False
 
-        table: PpTable
+        acnt: Account
         ledger: TransactionLedger
         with (
-            open_pps(
+            open_account(
                 'kraken',
                 acctid,
                 write_on_exit=True,
-            ) as table,
+            ) as acnt,
 
             open_trade_ledger(
                 'kraken',
                 acctid,
+                symcache=symcache,
             ) as ledger,
         ):
-            # transaction-ify the ledger entries
-            ledger_trans = await norm_trade_records(ledger)
+            # TODO: loading ledger entries should all be done
+            # within a newly implemented `async with open_account()
+            # as acnt` where `Account.ledger: TransactionLedger`
+            # can be used to explicitily update and write the
+            # offline TOML files!
+            # ------ - ------
+            # MOL the init sequence is:
+            # - get `Account` (with presumed pre-loaded ledger done
+            #   beind the scenes as part of ctx enter).
+            # - pull new trades from API, update the ledger with
+            #   normalized to `Transaction` entries of those
+            #   records, presumably (and implicitly) update the
+            #   acnt state including expiries, positions,
+            #   transfers..), and finally of course existing
+            #   per-asset balances.
+            # - validate all pos and balances ensuring there's
+            #   no seemingly noticeable discrepancies?
 
-            if not table.pps:
-                # NOTE: we can't use this since it first needs
-                # broker: str input support!
-                # table.update_from_trans(ledger.to_trans())
-                table.update_from_trans(ledger_trans)
-                table.write_config()
+            # LOAD and transaction-ify the EXISTING LEDGER
+            ledger_trans: dict[str, Transaction] = await norm_trade_records(
+                ledger,
+                client,
+            )
+
+            if not acnt.pps:
+                acnt.update_from_ledger(
+                    ledger_trans,
+                    symcache=ledger.symcache,
+                )
+                acnt.write_config()
 
             # TODO: eventually probably only load
             # as far back as it seems is not deliverd in the
             # most recent 50 trades and assume that by ordering we
-            # already have those records in the ledger.
-            tids2trades = await client.get_trades()
+            # already have those records in the ledger?
+            tids2trades: dict[str, dict] = await client.get_trades()
             ledger.update(tids2trades)
             if tids2trades:
                 ledger.write_config()
 
-            api_trans = await norm_trade_records(tids2trades)
+            api_trans: dict[str, Transaction] = await norm_trade_records(
+                tids2trades,
+                client,
+            )
 
             # retrieve kraken reported balances
             # and do diff with ledger to determine
             # what amount of trades-transactions need
             # to be reloaded.
-            balances = await client.get_balances()
+            balances: dict[str, float] = await client.get_balances()
 
-            for dst, size in balances.items():
+            verify_balances(
+                acnt,
+                src_fiat,
+                balances,
+                client,
+                ledger,
+                ledger_trans,
+                api_trans,
+            )
 
-                # we don't care about tracking positions
-                # in the user's source fiat currency.
-                if (
-                    dst == src_fiat
-                    or not any(
-                        dst in bs_mktid for bs_mktid in table.pps
-                    )
-                ):
-                    log.warning(
-                        f'Skipping balance `{dst}`:{size} for position calcs!'
-                    )
-                    continue
-
-                def has_pp(
-                    dst: str,
-                    size: float,
-
-                ) -> Position | None:
-
-                    src2dst: dict[str, str] = {}
-
-                    for bs_mktid in table.pps:
-                        likely_pair = get_likely_pair(
-                            src_fiat,
-                            dst,
-                            bs_mktid,
-                        )
-                        if likely_pair:
-                            src2dst[src_fiat] = dst
-
-                    for src, dst in src2dst.items():
-                        pair = f'{dst}{src_fiat}'
-                        pp = table.pps.get(pair)
-                        if (
-                            pp
-                            and math.isclose(pp.size, size)
-                        ):
-                            return pp
-
-                        elif (
-                            size == 0
-                            and pp.size
-                        ):
-                            log.warning(
-                                f'`kraken` account says you have  a ZERO '
-                                f'balance for {bs_mktid}:{pair}\n'
-                                f'but piker seems to think `{pp.size}`\n'
-                                'This is likely a discrepancy in piker '
-                                'accounting if the above number is'
-                                "large,' though it's likely to due lack"
-                                "f tracking xfers fees.."
-                            )
-                            return pp
-
-                    return None  # signal no entry
-
-                pos = has_pp(dst, size)
-                if not pos:
-
-                    # we have a balance for which there is no pp
-                    # entry? so we have to likely update from the
-                    # ledger.
-                    updated = table.update_from_trans(ledger_trans)
-                    log.info(f'Updated pps from ledger:\n{pformat(updated)}')
-                    pos = has_pp(dst, size)
-
-                    if (
-                        not pos
-                        and not simulate_pp_update
-                    ):
-                        # try reloading from API
-                        table.update_from_trans(api_trans)
-                        pos = has_pp(dst, size)
-                        if not pos:
-
-                            # get transfers to make sense of abs balances.
-                            # NOTE: we do this after ledger and API
-                            # loading since we might not have an entry
-                            # in the ``pps.toml`` for the necessary pair
-                            # yet and thus this likely pair grabber will
-                            # likely fail.
-                            for bs_mktid in table.pps:
-                                likely_pair = get_likely_pair(
-                                    src_fiat,
-                                    dst,
-                                    bs_mktid,
-                                )
-                                if likely_pair:
-                                    break
-                            else:
-                                raise ValueError(
-                                    'Could not find a position pair in '
-                                    'ledger for likely widthdrawal '
-                                    f'candidate: {dst}'
-                                )
-
-                            if likely_pair:
-                                # this was likely pp that had a withdrawal
-                                # from the dst asset out of the account.
-
-                                xfer_trans = await client.get_xfers(
-                                    dst,
-                                    # TODO: not all src assets are
-                                    # 3 chars long...
-                                    src_asset=likely_pair[3:],
-                                )
-                                if xfer_trans:
-                                    updated = table.update_from_trans(
-                                        xfer_trans,
-                                        cost_scalar=1,
-                                    )
-                                    log.info(
-                                        f'Updated {dst} from transfers:\n'
-                                        f'{pformat(updated)}'
-                                    )
-
-                        if has_pp(dst, size):
-                            raise ValueError(
-                                'Could not reproduce balance:\n'
-                                f'dst: {dst}, {size}\n'
-                            )
-
-            # only for simulate-testing a "new fill" since
+            # XXX NOTE: only for simulate-testing a "new fill" since
             # otherwise we have to actually conduct a live clear.
             if simulate_pp_update:
                 tid = list(tids2trades)[0]
@@ -643,25 +561,27 @@ async def open_trade_dialog(
                 reqids2txids[0] = last_trade_dict['ordertxid']
 
             ppmsgs: list[BrokerdPosition] = trades2pps(
-                table,
+                acnt,
+                ledger,
                 acctid,
             )
+            # sync with EMS delivering pps and accounts
             await ctx.started((ppmsgs, [acc_name]))
 
             # TODO: ideally this blocks the this task
             # as little as possible. we need to either do
             # these writes in another actor, or try out `trio`'s
             # async file IO api?
-            table.write_config()
+            acnt.write_config()
 
             # Get websocket token for authenticated data stream
             # Assert that a token was actually received.
             resp = await client.endpoint('GetWebSocketsToken', {})
-            err = resp.get('error')
-            if err:
+            if err := resp.get('error'):
                 raise BrokerError(err)
 
-            token = resp['result']['token']
+            # resp token for ws init
+            token: str = resp['result']['token']
 
             ws: NoBsWs
             async with (
@@ -690,13 +610,14 @@ async def open_trade_dialog(
 
                 # enter relay loop
                 await handle_order_updates(
+                    client,
                     ws,
                     stream,
                     ems_stream,
                     apiflows,
                     ids,
                     reqids2txids,
-                    table,
+                    acnt,
                     api_trans,
                     acctid,
                     acc_name,
@@ -705,13 +626,14 @@ async def open_trade_dialog(
 
 
 async def handle_order_updates(
+    client: Client,  # only for pairs table needed in ledger proc
     ws: NoBsWs,
     ws_stream: AsyncIterator,
     ems_stream: tractor.MsgStream,
     apiflows: OrderDialogs,
     ids: bidict[str, int],
     reqids2txids: bidict[int, str],
-    table: PpTable,
+    acnt: Account,
 
     # transaction records which will be updated
     # on new trade clearing events (aka order "fills")
@@ -733,7 +655,7 @@ async def handle_order_updates(
 
             # TODO: turns out you get the fill events from the
             # `openOrders` before you get this, so it might be better
-            # to do all fill/status/pp updates in that sub and just use
+            # to do all fill/status/pos updates in that sub and just use
             # this one for ledger syncs?
 
             # For eg. we could take the "last 50 trades" and do a diff
@@ -818,9 +740,12 @@ async def handle_order_updates(
                     )
                     await ems_stream.send(status_msg)
 
-                new_trans = await norm_trade_records(trades)
+                new_trans = await norm_trade_records(
+                    trades,
+                    client,
+                )
                 ppmsgs = trades2pps(
-                    table,
+                    acnt,
                     acctid,
                     new_trans,
                 )
@@ -1183,36 +1108,3 @@ async def handle_order_updates(
                         })
             case _:
                 log.warning(f'Unhandled trades update msg: {msg}')
-
-
-async def norm_trade_records(
-    ledger: dict[str, Any],
-
-) -> dict[str, Transaction]:
-
-    records: dict[str, Transaction] = {}
-
-    for tid, record in ledger.items():
-
-        size = float(record.get('vol')) * {
-            'buy': 1,
-            'sell': -1,
-        }[record['type']]
-
-        # we normalize to kraken's `altname` always..
-        bs_mktid: str = Client.normalize_symbol(record['pair'])
-        fqme = f'{bs_mktid.lower()}.kraken'
-        mkt: MktPair = (await get_mkt_info(fqme))[0]
-
-        records[tid] = Transaction(
-            fqme=fqme,
-            sym=mkt,
-            tid=tid,
-            size=size,
-            price=float(record['price']),
-            cost=float(record['fee']),
-            dt=pendulum.from_timestamp(float(record['time'])),
-            bs_mktid=bs_mktid,
-        )
-
-    return records

@@ -51,7 +51,7 @@ from ._api import (
     _load_builtins,
     _Token,
 )
-from .._profile import Profiler
+from ..toolz import Profiler
 
 log = get_logger(__name__)
 

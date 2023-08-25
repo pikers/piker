@@ -36,25 +36,27 @@ import pyqtgraph as pg
 from msgspec import field
 
 # from .. import brokers
-from ..accounting import (
+from piker.accounting import (
     MktPair,
 )
-from ..data import (
+from piker.types import Struct
+from piker.data import (
     open_feed,
     Feed,
     Flume,
+    open_sample_stream,
+    ShmArray,
 )
-from ..data.ticktools import (
+from piker.data.ticktools import (
     _tick_groups,
     _auction_ticks,
 )
-from ..data.types import Struct
-from ..data._sharedmem import (
-    ShmArray,
+from piker.toolz import (
+    pg_profile_enabled,
+    ms_slower_then,
+    Profiler,
 )
-from ..data._sampling import (
-    open_sample_stream,
-)
+from piker.log import get_logger
 # from ..data._source import tf_in_1s
 from ._axes import YAxisLabel
 from ._chart import (
@@ -79,12 +81,6 @@ from .order_mode import (
     open_order_mode,
     OrderMode,
 )
-from .._profile import (
-    pg_profile_enabled,
-    ms_slower_then,
-)
-from ..log import get_logger
-from .._profile import Profiler
 
 if TYPE_CHECKING:
     from ._interaction import ChartView
@@ -462,7 +458,7 @@ async def graphics_update_loop(
         await trio.sleep(0)
 
         if ds.hist_vars['i_last'] < ds.hist_vars['i_last_append']:
-            await tractor.breakpoint()
+            await tractor.pause()
 
     # main real-time quotes update loop
     stream: tractor.MsgStream

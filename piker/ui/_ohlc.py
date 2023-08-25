@@ -31,9 +31,12 @@ from PyQt5.QtCore import (
 from PyQt5.QtGui import QPainterPath
 
 from ._curve import FlowGraphic
-from .._profile import pg_profile_enabled, ms_slower_then
+from ..toolz import (
+    Profiler,
+    pg_profile_enabled,
+    ms_slower_then,
+)
 from ..log import get_logger
-from .._profile import Profiler
 
 
 log = get_logger(__name__)
@@ -224,7 +227,13 @@ class BarItems(FlowGraphic):
         # last_row = ohlc[-1:]
 
         # individual values
-        last_row = o, h, l, last, i = ohlc[-1]
+        last_row = (
+            o,
+            h,
+            lo,
+            last,
+            i,
+        ) = ohlc[-1]
 
         # times = src_data['time']
         # if times[-1] - times[-2]:
@@ -251,17 +260,17 @@ class BarItems(FlowGraphic):
         # writer is responsible for changing open on "first" volume of bar
         larm.setLine(larm.x1(), o, larm.x2(), o)
 
-        if l != h:  # noqa
+        if lo != h:  # noqa
 
             if body is None:
                 body = self._last_bar_lines[0] = QLineF(
-                    i + bg, l,
+                    i + bg, lo,
                     i + step_size - bg, h,
                 )
             else:
                 # update body
                 body.setLine(
-                    body.x1(), l,
+                    body.x1(), lo,
                     body.x2(), h,
                 )
 

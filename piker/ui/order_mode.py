@@ -36,25 +36,29 @@ import tractor
 import trio
 from PyQt5.QtCore import Qt
 
-from .. import config
-from ..accounting import (
+from piker import config
+from piker.accounting import (
     Allocator,
     Position,
     mk_allocator,
     MktPair,
     Symbol,
 )
-from ..clearing._client import (
+from piker.clearing import (
     open_ems,
     OrderClient,
 )
-from ._style import _font
-from ..data.feed import (
+from piker.clearing._messages import (
+    Order,
+    Status,
+    BrokerdPosition,
+)
+from piker.data import (
     Feed,
     Flume,
 )
-from ..data.types import Struct
-from ..log import get_logger
+from piker.types import Struct
+from piker.log import get_logger
 from ._editors import LineEditor, ArrowEditor
 from ._lines import order_line, LevelLine
 from ._position import (
@@ -63,14 +67,7 @@ from ._position import (
 )
 from ._forms import FieldsForm
 from ._window import MultiStatus
-from ..clearing._messages import (
-    # Cancel,
-    Order,
-    Status,
-    # BrokerdOrder,
-    # BrokerdStatus,
-    BrokerdPosition,
-)
+from ._style import _font
 from ._forms import open_form_input_handling
 from ._notify import notify_from_ems_status_msg
 
@@ -641,13 +638,13 @@ class OrderMode:
             group_key=True
         )
         for oid in oids:
-            dialog: Dialog = self.dialogs[oid]
-            self.client.cancel_nowait(uuid=oid)
-            cancel_status_close = self.multistatus.open_status(
-                f'cancelling order {oid}',
-                group_key=key,
-            )
-            dialog.last_status_close = cancel_status_close
+            if dialog := self.dialogs.get(oid):
+                self.client.cancel_nowait(uuid=oid)
+                cancel_status_close = self.multistatus.open_status(
+                    f'cancelling order {oid}',
+                    group_key=key,
+                )
+                dialog.last_status_close = cancel_status_close
 
     def cancel_all_orders(self) -> None:
         '''
@@ -770,7 +767,6 @@ async def open_order_mode(
         accounts_def: bidict[str, str | None] = config.load_accounts(
             providers=[mkt.broker],
         )
-        # await tractor.pause()
 
         # XXX: ``brokerd`` delivers a set of account names that it
         # allows use of but the user also can define the accounts they'd
@@ -797,8 +793,6 @@ async def open_order_mode(
             # net-zero pp
             startup_pp = Position(
                 mkt=mkt,
-                size=0,
-                ppu=0,
 
                 # XXX: BLEH, do we care about this on the client side?
                 bs_mktid=mkt.key,
@@ -822,7 +816,7 @@ async def open_order_mode(
             pp_tracker.nav.hide()
             trackers[account_name] = pp_tracker
 
-            assert pp_tracker.startup_pp.size == pp_tracker.live_pp.size
+            assert pp_tracker.startup_pp.cumsize == pp_tracker.live_pp.cumsize
 
             # TODO: do we even really need the "startup pp" or can we
             # just take the max and pass that into the some state / the
@@ -830,7 +824,7 @@ async def open_order_mode(
             pp_tracker.update_from_pp()
 
             # on existing position, show pp tracking graphics
-            if pp_tracker.startup_pp.size != 0:
+            if pp_tracker.startup_pp.cumsize != 0:
                 pp_tracker.nav.show()
                 pp_tracker.nav.hide_info()
 
@@ -1038,7 +1032,7 @@ async def process_trade_msg(
             # status/pane UI
             mode.pane.update_status_ui(tracker)
 
-            if tracker.live_pp.size:
+            if tracker.live_pp.cumsize:
                 # display pnl
                 mode.pane.display_pnl(tracker)
 
@@ -1094,9 +1088,16 @@ async def process_trade_msg(
                     mode.on_submit(oid)
 
         case Status(resp='error'):
-            # delete level line from view
+
+            # do all the things for a cancel:
+            # - drop order-msg dialog from client table
+            # - delete level line from view
             mode.on_cancel(oid)
-            broker_msg = msg.brokerd_msg
+
+            # TODO: parse into broker-side msg, or should we
+            # expect it to just be **that** msg verbatim (since
+            # we'd presumably have only 1 `Error` msg-struct)
+            broker_msg: dict = msg.brokerd_msg
             log.error(
                 f'Order {oid}->{resp} with:\n{pformat(broker_msg)}'
             )
@@ -1117,8 +1118,12 @@ async def process_trade_msg(
 
         case Status(
             resp='triggered',
-            # req=Order(exec_mode='live', action='alert') as req, # TODO
-            req={'exec_mode': 'live', 'action': 'alert'} as req,
+            # TODO: do the struct-msg version, blah blah..
+            # req=Order(exec_mode='live', action='alert') as req,
+            req={
+                'exec_mode': 'live',
+                'action': 'alert',
+            } as req,
         ):
             # should only be one "fill" for an alert
             # add a triangle and remove the level line

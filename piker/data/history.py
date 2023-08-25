@@ -140,11 +140,18 @@ async def shm_push_in_between(
     # memory...
     array = shm.array
     zeros = array[array['low'] == 0]
-    if (
-        0 < zeros.size < 1000
-    ):
-        tractor.breakpoint()
 
+    # always backfill gaps with the earliest (price) datum's
+    # value to avoid the y-ranger including zeros and completely
+    # stretching the y-axis..
+    if 0 < zeros.size:
+        zeros[[
+            'open',
+            'high',
+            'low',
+            'close',
+        ]] = shm._array[zeros['index'][0] - 1]['close']
+        # await tractor.pause()
 
 
 async def start_backfill(
@@ -257,7 +264,7 @@ async def start_backfill(
             #         f"{mkt.fqme}: skipping duplicate frame @ {next_start_dt}"
             #     )
             #     starts[start_dt] += 1
-            #     await tractor.breakpoint()
+            #     await tractor.pause()
             #     continue
 
             # elif starts[next_start_dt] > 6:
@@ -366,7 +373,13 @@ async def start_backfill(
                     f'{next_start_dt} -> {last_start_dt}'
                 )
 
-                if mkt.dst.atype not in {'crypto', 'crypto_currency'}:
+                # always drop the src asset token for
+                # non-currency-pair like market types (for now)
+                if mkt.dst.atype not in {
+                    'crypto',
+                    'crypto_currency',
+                    'fiat',  # a "forex pair"
+                }:
                     # for now, our table key schema is not including
                     # the dst[/src] source asset token.
                     col_sym_key: str = mkt.get_fqme(
@@ -480,7 +493,7 @@ async def back_load_from_tsdb(
     if storemod.name == 'nativedb':
         return
 
-        await tractor.breakpoint()
+        await tractor.pause()
         assert shm._first.value == 0
 
     array = shm.array
@@ -631,20 +644,25 @@ async def tsdb_backfill(
             task_status.started()
             return
 
-        times: np.ndarray = array['time']
+        # TODO: fill in non-zero epoch time values ALWAYS!
+        # hist_shm._array['time'] = np.arange(
+        #     start=
 
-        # sample period step size in seconds
-        step_size_s = (
-            from_timestamp(times[-1])
-            - from_timestamp(times[-2])
-        ).seconds
+        # NOTE: removed for now since it'll always break
+        # on the first 60s of the venue open..
+        # times: np.ndarray = array['time']
+        # # sample period step size in seconds
+        # step_size_s = (
+        #     from_timestamp(times[-1])
+        #     - from_timestamp(times[-2])
+        # ).seconds
 
-        if step_size_s not in (1, 60):
-            log.error(f'Last 2 sample period is off!? -> {step_size_s}')
-            step_size_s = (
-                from_timestamp(times[-2])
-                - from_timestamp(times[-3])
-            ).seconds
+        # if step_size_s not in (1, 60):
+        #     log.error(f'Last 2 sample period is off!? -> {step_size_s}')
+        #     step_size_s = (
+        #         from_timestamp(times[-2])
+        #         - from_timestamp(times[-3])
+        #     ).seconds
 
         # NOTE: on the first history, most recent history
         # frame we PREPEND from the current shm ._last index
@@ -741,7 +759,6 @@ async def tsdb_backfill(
             )
         )
 
-
         # if len(hist_shm.array) < 2:
         # TODO: there's an edge case here to solve where if the last
         # frame before market close (at least on ib) was pushed and
@@ -760,7 +777,7 @@ async def tsdb_backfill(
         finally:
             return
 
-        # IF we need to continue backloading incrementall from the
+        # IF we need to continue backloading incrementally from the
         # tsdb client..
         tn.start_soon(
             back_load_from_tsdb,
@@ -822,10 +839,9 @@ async def manage_history(
     # from tractor._state import _runtime_vars
     # port = _runtime_vars['_root_mailbox'][1]
 
-    uid = tractor.current_actor().uid
+    uid: tuple = tractor.current_actor().uid
     name, uuid = uid
-    service = name.rstrip(f'.{mod.name}')
-
+    service: str = name.rstrip(f'.{mod.name}')
     fqme: str = mkt.get_fqme(delim_char='')
 
     # (maybe) allocate shm array for this broker/symbol which will
@@ -864,8 +880,8 @@ async def manage_history(
 
     # (for now) set the rt (hft) shm array with space to prepend
     # only a few days worth of 1s history.
-    days = 2
-    start_index = days*_secs_in_day
+    days: int = 2
+    start_index: int = days*_secs_in_day
     rt_shm._first.value = start_index
     rt_shm._last.value = start_index
     rt_zero_index = rt_shm.index - 1
@@ -878,7 +894,6 @@ async def manage_history(
     open_history_client = getattr(
         mod,
         'open_history_client',
-        None,
     )
     assert open_history_client
 

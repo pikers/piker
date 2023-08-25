@@ -24,8 +24,11 @@ from contextlib import (
     aclosing,
 )
 from datetime import datetime
-from functools import partial
+from functools import (
+    partial,
+)
 import itertools
+from pprint import pformat
 from typing import (
     Any,
     AsyncGenerator,
@@ -54,9 +57,8 @@ from piker.accounting import (
     DerivTypes,
     MktPair,
     unpack_fqme,
-    digits_to_dec,
 )
-from piker.data.types import Struct
+from piker.types import Struct
 from piker.data.validate import FeedInit
 from piker.data._web_bs import (
     open_autorecon_ws,
@@ -263,7 +265,7 @@ async def open_history_client(
             ):
                 inow = round(time.time())
                 if (inow - times[-1]) > 60:
-                    await tractor.breakpoint()
+                    await tractor.pause()
 
             start_dt = from_timestamp(times[0])
             end_dt = from_timestamp(times[-1])
@@ -277,69 +279,113 @@ async def open_history_client(
 async def get_mkt_info(
     fqme: str,
 
-) -> tuple[MktPair, Pair]:
+) -> tuple[MktPair, Pair] | None:
 
     # uppercase since kraken bs_mktid is always upper
-    if 'binance' not in fqme:
+    if 'binance' not in fqme.lower():
         fqme += '.binance'
 
-    bs_fqme, _, broker = fqme.rpartition('.')
+    mkt_mode: str = ''
     broker, mkt_ep, venue, expiry = unpack_fqme(fqme)
 
-    # NOTE: see the `FutesPair.bs_fqme: str` implementation
-    # to understand the reverse market info lookup below.
-    mkt_mode = venue = venue.lower() or 'spot'
-    _atype: str = ''
+    # NOTE: we always upper case all tokens to be consistent with
+    # binance's symbology style for pairs, like `BTCUSDT`, but in
+    # theory we could also just keep things lower case; as long as
+    # we're consistent and the symcache matches whatever this func
+    # returns, always!
+    expiry: str = expiry.upper()
+    venue: str = venue.upper()
+    venue_lower: str = venue.lower()
+
+    # XXX TODO: we should change the usdtm_futes name to just
+    # usdm_futes (dropping the tether part) since it turns out that
+    # there are indeed USD-tokens OTHER THEN tether being used as
+    # the margin assets.. it's going to require a wholesale
+    # (variable/key) rename as well as file name adjustments to any
+    # existing tsdb set..
+    if 'usd' in venue_lower:
+        mkt_mode: str = 'usdtm_futes'
+
+    # NO IDEA what these contracts (some kinda DEX-ish futes?) are
+    # but we're masking them for now..
+    elif (
+        'defi' in venue_lower
+
+        # TODO: handle coinm futes which have a margin asset that
+        # is some crypto token!
+        # https://binance-docs.github.io/apidocs/delivery/en/#exchange-information
+        or 'btc' in venue_lower
+    ):
+        return None
+
+    else:
+        # NOTE: see the `FutesPair.bs_fqme: str` implementation
+        # to understand the reverse market info lookup below.
+        mkt_mode = venue_lower or 'spot'
+
     if (
         venue
-        and 'spot' not in venue.lower()
+        and 'spot' not in venue_lower
 
         # XXX: catch all in case user doesn't know which
         # venue they want (usdtm vs. coinm) and we can choose
         # a default (via config?) once we support coin-m APIs.
-        or 'perp' in bs_fqme.lower()
+        or 'perp' in venue_lower
     ):
-        mkt_mode: str = f'{venue.lower()}_futes'
-        if 'perp' in expiry:
-            _atype = 'perpetual_future'
-
-        else:
-            _atype = 'future'
+        if not mkt_mode:
+            mkt_mode: str = f'{venue_lower}_futes'
 
     async with open_cached_client(
         'binance',
     ) as client:
 
-        # switch mode depending on input pattern parsing
+        assets: dict[str, Asset] = await client.get_assets()
+        pair_str: str = mkt_ep.upper()
+
+        # switch venue-mode depending on input pattern parsing
+        # since we want to use a particular endpoint (set) for
+        # pair info lookup!
         client.mkt_mode = mkt_mode
 
-        pair_str: str = mkt_ep.upper()
-        pair: Pair = await client.exch_info(pair_str)
+        pair: Pair = await client.exch_info(
+            pair_str,
+            venue=mkt_mode,  # explicit
+            expiry=expiry,
+        )
 
         if 'futes' in mkt_mode:
             assert isinstance(pair, FutesPair)
 
+        dst: Asset | None = assets.get(pair.bs_dst_asset)
+        if (
+            not dst
+            # TODO: a known asset DNE list?
+            # and pair.baseAsset == 'DEFI'
+        ):
+            log.warning(
+                f'UNKNOWN {venue} asset {pair.baseAsset} from,\n'
+                f'{pformat(pair.to_dict())}'
+            )
+
+            # XXX UNKNOWN missing "asset", though no idea why?
+            # maybe it's only avail in the margin venue(s): /dapi/ ?
+            return None
+
         mkt = MktPair(
-            dst=Asset(
-                name=pair.baseAsset,
-                atype='crypto',
-                tx_tick=digits_to_dec(pair.baseAssetPrecision),
-            ),
-            src=Asset(
-                name=pair.quoteAsset,
-                atype='crypto',
-                tx_tick=digits_to_dec(pair.quoteAssetPrecision),
-            ),
+            dst=dst,
+            src=assets[pair.bs_src_asset],
             price_tick=pair.price_tick,
             size_tick=pair.size_tick,
             bs_mktid=pair.symbol,
             expiry=expiry,
             venue=venue,
             broker='binance',
-            _atype=_atype,
+
+            # NOTE: sectype is always taken from dst, see
+            # `MktPair.type_key` and `Client._cache_pairs()`
+            # _atype=sectype,
         )
-        both = mkt, pair
-        return both
+        return mkt, pair
 
 
 @acm
@@ -472,10 +518,11 @@ async def open_symbol_search(
     ctx: tractor.Context,
 ) -> Client:
 
+    # NOTE: symbology tables are loaded as part of client
+    # startup in ``.api.get_client()`` and in this case
+    # are stored as `Client._pairs`.
     async with open_cached_client('binance') as client:
 
-        # load all symbols locally for fast search
-        fqpairs_cache = await client.exch_info()
         # TODO: maybe we should deliver the cache
         # so that client's can always do a local-lookup-first
         # style try and then update async as (new) match results
@@ -488,7 +535,7 @@ async def open_symbol_search(
             async for pattern in stream:
                 matches = fuzzy.extractBests(
                     pattern,
-                    fqpairs_cache,
+                    client._pairs,
                     score_cutoff=50,
                 )
 

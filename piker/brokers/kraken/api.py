@@ -15,12 +15,11 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 '''
-Kraken web API wrapping.
+Core (web) API client
 
 '''
 from contextlib import asynccontextmanager as acm
 from datetime import datetime
-from decimal import Decimal
 import itertools
 from typing import (
     Any,
@@ -28,7 +27,6 @@ from typing import (
 )
 import time
 
-from bidict import bidict
 import pendulum
 import asks
 from fuzzywuzzy import process as fuzzy
@@ -40,11 +38,11 @@ import base64
 import trio
 
 from piker import config
-from piker.data.types import Struct
 from piker.data import def_iohlcv_fields
 from piker.accounting._mktinfo import (
     Asset,
     digits_to_dec,
+    dec_digits,
 )
 from piker.brokers._util import (
     resproc,
@@ -54,6 +52,7 @@ from piker.brokers._util import (
 )
 from piker.accounting import Transaction
 from piker.log import get_logger
+from .symbols import Pair
 
 log = get_logger('piker.brokers.kraken')
 
@@ -105,68 +104,22 @@ class InvalidKey(ValueError):
     '''
 
 
-# https://www.kraken.com/features/api#get-tradable-pairs
-class Pair(Struct):
-    altname: str  # alternate pair name
-    wsname: str  # WebSocket pair name (if available)
-    aclass_base: str  # asset class of base component
-    base: str  # asset id of base component
-    aclass_quote: str  # asset class of quote component
-    quote: str  # asset id of quote component
-    lot: str  # volume lot size
-
-    cost_decimals: int
-    costmin: float
-    pair_decimals: int  # scaling decimal places for pair
-    lot_decimals: int  # scaling decimal places for volume
-
-    # amount to multiply lot volume by to get currency volume
-    lot_multiplier: float
-
-    # array of leverage amounts available when buying
-    leverage_buy: list[int]
-    # array of leverage amounts available when selling
-    leverage_sell: list[int]
-
-    # fee schedule array in [volume, percent fee] tuples
-    fees: list[tuple[int, float]]
-
-    # maker fee schedule array in [volume, percent fee] tuples (if on
-    # maker/taker)
-    fees_maker: list[tuple[int, float]]
-
-    fee_volume_currency: str  # volume discount currency
-    margin_call: str  # margin call level
-    margin_stop: str  # stop-out/liquidation margin level
-    ordermin: float  # minimum order volume for pair
-    tick_size: float  # min price step size
-    status: str
-
-    short_position_limit: float = 0
-    long_position_limit: float = float('inf')
-
-    @property
-    def price_tick(self) -> Decimal:
-        return digits_to_dec(self.pair_decimals)
-
-    @property
-    def size_tick(self) -> Decimal:
-        return digits_to_dec(self.lot_decimals)
-
-    @property
-    def bs_fqme(self) -> str:
-        return f'{self.symbol}.SPOT'
-
-
 class Client:
 
     # symbol mapping from all names to the altname
-    _ntable: dict[str, str] = {}
+    _altnames: dict[str, str] = {}
 
-    # 2-way map of symbol names to their "alt names" ffs XD
-    _altnames: bidict[str, str] = bidict()
+    # key-ed by kraken's own bs_mktids (like fricking "XXMRZEUR")
+    # with said keys used directly from EP responses so that ledger
+    # parsing can be easily accomplished from both trade-event-msgs
+    # and offline toml files
+    _Assets: dict[str, Asset] = {}
+    _AssetPairs: dict[str, Pair] = {}
 
+    # key-ed by `Pair.bs_fqme: str`, and thus used for search
+    # allowing for lookup using piker's own FQME symbology sys.
     _pairs: dict[str, Pair] = {}
+    _assets: dict[str, Asset] = {}
 
     def __init__(
         self,
@@ -186,15 +139,14 @@ class Client:
         self._secret = secret
 
         self.conf: dict[str, str] = config
-        self.assets: dict[str, Asset] = {}
 
     @property
     def pairs(self) -> dict[str, Pair]:
+
         if self._pairs is None:
             raise RuntimeError(
-                "Make sure to run `cache_symbols()` on startup!"
+                "Client didn't run `.get_mkt_pairs()` on startup?!"
             )
-            # retreive and cache all symbols
 
         return self._pairs
 
@@ -254,17 +206,29 @@ class Client:
             'Balance',
             {},
         )
-        by_bsmktid = resp['result']
+        by_bsmktid: dict[str, dict] = resp['result']
 
-        # TODO: we need to pull out the "asset" decimals
-        # data and return a `decimal.Decimal` instead here!
-        # using the underlying Asset
-        return {
-            self._altnames[sym].lower(): float(bal)
-            for sym, bal in by_bsmktid.items()
-        }
+        balances: dict = {}
+        for respname, bal in by_bsmktid.items():
+            asset: Asset = self._Assets[respname]
 
-    async def get_assets(self) -> dict[str, Asset]:
+            # TODO: which KEY should we use? it's used to index
+            # the `Account.pps: dict` ..
+            key: str = asset.name.lower()
+            # TODO: should we just return a `Decimal` here
+            # or is the rounded version ok?
+            balances[key] = round(
+                float(bal),
+                ndigits=dec_digits(asset.tx_tick)
+            )
+
+        return balances
+
+    async def get_assets(
+        self,
+        reload: bool = False,
+
+    ) -> dict[str, Asset]:
         '''
         Load and cache all asset infos and pack into
         our native ``Asset`` struct.
@@ -282,21 +246,37 @@ class Client:
             }
 
         '''
-        resp = await self._public('Assets', {})
-        assets = resp['result']
+        if (
+            not self._assets
+            or reload
+        ):
+            resp = await self._public('Assets', {})
+            assets: dict[str, dict] = resp['result']
 
-        for bs_mktid, info in assets.items():
-            altname = self._altnames[bs_mktid] = info['altname']
-            aclass: str = info['aclass']
+            for bs_mktid, info in assets.items():
 
-            self.assets[bs_mktid] = Asset(
-                name=altname.lower(),
-                atype=f'crypto_{aclass}',
-                tx_tick=digits_to_dec(info['decimals']),
-                info=info,
-            )
+                altname: str = info['altname']
+                aclass: str = info['aclass']
+                asset = Asset(
+                    name=altname,
+                    atype=f'crypto_{aclass}',
+                    tx_tick=digits_to_dec(info['decimals']),
+                    info=info,
+                )
+                # NOTE: yes we keep 2 sets since kraken insists on
+                # keeping 3 frickin sets bc apparently they have
+                # no sane data engineers whol all like different
+                # keys for their fricking symbology sets..
+                self._Assets[bs_mktid] = asset
+                self._assets[altname.lower()] = asset
+                self._assets[altname] = asset
 
-        return self.assets
+        # we return the "most native" set merged with our preferred
+        # naming (which i guess is the "altname" one) since that's
+        # what the symcache loader will be storing, and we need the
+        # keys that are easiest to match against in any trade
+        # records.
+        return self._Assets | self._assets
 
     async def get_trades(
         self,
@@ -377,23 +357,26 @@ class Client:
         #     'amount': '0.00300726', 'fee': '0.00001000', 'time':
         #     1658347714, 'status': 'Success'}]}
 
+        if xfers:
+            import tractor
+            await tractor.pp()
+
         trans: dict[str, Transaction] = {}
         for entry in xfers:
-
             # look up the normalized name and asset info
-            asset_key = entry['asset']
-            asset = self.assets[asset_key]
-            asset_key = self._altnames[asset_key].lower()
+            asset_key: str = entry['asset']
+            asset: Asset = self._Assets[asset_key]
+            asset_key: str = asset.name.lower()
+            # asset_key: str = self._altnames[asset_key].lower()
 
             # XXX: this is in the asset units (likely) so it isn't
             # quite the same as a commisions cost necessarily..)
+            # TODO: also round this based on `Pair` cost precision info?
             cost = float(entry['fee'])
-
-            fqme = asset_key + '.kraken'
+            # fqme: str = asset_key + '.kraken'
 
             tx = Transaction(
-                fqme=fqme,
-                sym=asset,
+                fqme=asset_key,  # this must map to an entry in .assets!
                 tid=entry['txid'],
                 dt=pendulum.from_timestamp(entry['time']),
                 bs_mktid=f'{asset_key}{src_asset}',
@@ -408,6 +391,11 @@ class Client:
 
                 # XXX: see note above
                 cost=cost,
+
+                # not a trade but a withdrawal or deposit on the
+                # asset (chain) system.
+                etype='transfer',
+
             )
             trans[tx.tid] = tx
 
@@ -458,7 +446,7 @@ class Client:
         # txid is a transaction id given by kraken
         return await self.endpoint('CancelOrder', {"txid": reqid})
 
-    async def pair_info(
+    async def asset_pairs(
         self,
         pair_patt: str | None = None,
 
@@ -470,64 +458,69 @@ class Client:
         https://docs.kraken.com/rest/#tag/Market-Data/operation/getTradableAssetPairs
 
         '''
-        # get all pairs by default, or filter
-        # to whatever pattern is provided as input.
-        pairs: dict[str, str] | None = None
+        if not self._AssetPairs:
+            # get all pairs by default, or filter
+            # to whatever pattern is provided as input.
+            req_pairs: dict[str, str] | None = None
+            if pair_patt is not None:
+                req_pairs = {'pair': pair_patt}
+
+            resp = await self._public(
+                'AssetPairs',
+                req_pairs,
+            )
+            err = resp['error']
+            if err:
+                raise SymbolNotFound(pair_patt)
+
+            # NOTE: we key pairs by our custom defined `.bs_fqme`
+            # field since we want to offer search over this key
+            # set, callers should fill out lookup tables for
+            # kraken's bs_mktid keys to map to these keys!
+            for key, data in resp['result'].items():
+                pair = Pair(respname=key, **data)
+
+                # always cache so we can possibly do faster lookup
+                self._AssetPairs[key] = pair
+
+                bs_fqme: str = pair.bs_fqme
+
+                self._pairs[bs_fqme] = pair
+
+                # register the piker pair under all monikers, a giant flat
+                # surjection of all possible (and stupid) kraken names to
+                # the FMQE style piker key.
+                self._altnames[pair.altname] = bs_fqme
+                self._altnames[pair.wsname] = bs_fqme
+
         if pair_patt is not None:
-            pairs = {'pair': pair_patt}
+            return next(iter(self._pairs.items()))[1]
 
-        resp = await self._public(
-            'AssetPairs',
-            pairs,
-        )
-        err = resp['error']
-        if err:
-            raise SymbolNotFound(pair_patt)
+        return self._AssetPairs
 
-        pairs: dict[str, Pair] = {
-
-            key: Pair(**data)
-            for key, data in resp['result'].items()
-        }
-        # always cache so we can possibly do faster lookup
-        self._pairs.update(pairs)
-
-        if pair_patt is not None:
-            return next(iter(pairs.items()))[1]
-
-        return pairs
-
-    async def cache_symbols(self) -> dict:
+    async def get_mkt_pairs(
+        self,
+        reload: bool = False,
+    ) -> dict:
         '''
-        Load all market pair info build and cache it for downstream use.
+        Load all market pair info build and cache it for downstream
+        use.
 
-        A ``._ntable: dict[str, str]`` is available for mapping the
-        websocket pair name-keys and their http endpoint API (smh)
-        equivalents to the "alternative name" which is generally the one
-        we actually want to use XD
+        An ``._altnames: dict[str, str]`` is available for looking
+        up the piker-native FQME style `Pair.bs_fqme: str` for any
+        input of the three (yes, it's that idiotic) available
+        key-sets that kraken frickin offers depending on the API
+        including the .altname, .wsname and the weird ass default
+        set they return in rest responses..
 
         '''
-        if not self._pairs:
-            pairs = await self.pair_info()
-            assert self._pairs == pairs
+        if (
+            not self._pairs
+            or reload
+        ):
+            await self.asset_pairs()
 
-            # table of all ws and rest keys to their alt-name values.
-            ntable: dict[str, str] = {}
-
-            for rest_key in list(pairs.keys()):
-
-                pair: Pair = pairs[rest_key]
-                altname = pair.altname
-                wsname = pair.wsname
-                ntable[altname] = ntable[rest_key] = ntable[wsname] = altname
-
-                # register the pair under all monikers, a giant flat
-                # surjection of all possible names to each info obj.
-                self._pairs[altname] = self._pairs[wsname] = pair
-
-            self._ntable.update(ntable)
-
-        return self._pairs
+        return self._AssetPairs
 
     async def search_symbols(
         self,
@@ -543,8 +536,8 @@ class Client:
 
         '''
         if not len(self._pairs):
-            await self.cache_symbols()
-            assert self._pairs, '`Client.cache_symbols()` was never called!?'
+            await self.get_mkt_pairs()
+            assert self._pairs, '`Client.get_mkt_pairs()` was never called!?'
 
         matches = fuzzy.extractBests(
             pattern,
@@ -632,9 +625,9 @@ class Client:
                 raise BrokerError(errmsg)
 
     @classmethod
-    def normalize_symbol(
+    def to_bs_fqme(
         cls,
-        ticker: str
+        pair_str: str
     ) -> tuple[str, Pair]:
         '''
         Normalize symbol names to to a 3x3 pair from the global
@@ -643,7 +636,7 @@ class Client:
 
         '''
         try:
-            return cls._ntable[ticker]
+            return cls._altnames[pair_str.upper()]
         except KeyError as ke:
             raise SymbolNotFound(f'kraken has no {ke.args[0]}')
 
@@ -655,6 +648,9 @@ async def get_client() -> Client:
     if conf:
         client = Client(
             conf,
+
+            # TODO: don't break these up and just do internal
+            # conf lookups instead..
             name=conf['key_descr'],
             api_key=conf['api_key'],
             secret=conf['secret']
@@ -666,6 +662,6 @@ async def get_client() -> Client:
     # batch requests.
     async with trio.open_nursery() as nurse:
         nurse.start_soon(client.get_assets)
-        await client.cache_symbols()
+        await client.get_mkt_pairs()
 
     yield client

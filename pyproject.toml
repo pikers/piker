@@ -1,0 +1,52 @@
+[tool.poetry]
+name = "piker"
+version = "0.1.0.alpha0.dev0"
+description = "trading gear for hackers"
+authors = ["Tyler Goodlet <jgbt@protonmail.com>"]
+license = "AGPLv3"
+readme = "README.md"
+
+
+[tool.poetry.dependencies]
+python = "^3.10"
+tomli = "^2.0.1"
+tomli-w = "^1.0.0"
+colorlog = "^6.7.0"
+attrs = "^23.1.0"
+pygments = "^2.16.1"
+colorama = "^0.4.6"
+msgspec = "^0.18.0"
+typer = "^0.9.0"
+rich = "^13.5.2"
+trio = "^0.22.2"
+trio-websocket = "^0.10.3"
+trio-util = "^0.7.0"
+async-generator = "^1.10"
+asks = "^3.0.0"
+ib-insync = "^0.9.86"
+pendulum = "^2.1.2"
+bidict = "^0.22.1"
+cython = "^3.0.0"
+numpy = "1.24"
+numba = "^0.57.1"
+polars = "^0.18.13"
+pyqt5 = "^5.15.9"
+qdarkstyle = ">=3.0.2"
+fuzzywuzzy = {extras = ["speedup"], version = "^0.18.0"}
+xonsh = "^0.14.0"
+
+# pinned from git
+tractor = { path = '../tractor/', develop = true }
+# tractor = { git = 'https://github.com/goodboy/tractor.git', branch = 'piker_pin' }
+pyqtgraph = { git = 'https://github.com/pikers/pyqtgraph.git' }
+asyncvnc = { git = 'https://github.com/pikers/asyncvnc.git', branch = 'main' }
+tomlkit = { git = 'https://github.com/pikers/tomlkit.git', branch = 'piker_pin' }
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+
+[tool.poetry.scripts]
+poetry = "poetry.console.application:main"

@@ -34,7 +34,7 @@ import tractor
 
 from ._util import log
 from ._source import def_iohlcv_fields
-from .types import Struct
+from piker.types import Struct
 
 
 def cuckoff_mantracker():

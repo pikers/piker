@@ -30,21 +30,15 @@ import tractor
 import pendulum
 import numpy as np
 
-from ..accounting import MktPair
-from ._util import log
-from .types import Struct
+from piker.types import Struct
 from ._sharedmem import (
     attach_shm_array,
     ShmArray,
     _Token,
 )
-# from .._profile import (
-#     Profiler,
-#     pg_profile_enabled,
-# )
 
 if TYPE_CHECKING:
-    # from pyqtgraph import PlotItem
+    from ..accounting import MktPair
     from .feed import Feed
 
 
@@ -194,6 +188,7 @@ class Flume(Struct):
 
         '''
         mkt_msg = msg.pop('mkt')
+        from ..accounting import MktPair  # cycle otherwise..
         mkt = MktPair.from_msg(mkt_msg)
         return cls(mkt=mkt, **msg)
 
@@ -233,5 +228,3 @@ class Flume(Struct):
             np.all(np.isin(vlm, -1))
             or np.all(np.isnan(vlm))
         )
-
-

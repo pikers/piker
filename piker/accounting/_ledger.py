@@ -21,65 +21,77 @@ Trade and transaction ledger processing.
 from __future__ import annotations
 from collections import UserDict
 from contextlib import contextmanager as cm
+from functools import partial
 from pathlib import Path
+from pprint import pformat
+from types import ModuleType
 from typing import (
     Any,
     Callable,
-    Iterator,
-    Union,
-    Generator
+    Generator,
+    Literal,
+    TYPE_CHECKING,
 )
 
 from pendulum import (
-    datetime,
     DateTime,
-    from_timestamp,
-    parse,
 )
 import tomli_w  # for fast ledger writing
 
-from .. import config
-from ..data.types import Struct
+from piker.types import Struct
+from piker import config
 from ..log import get_logger
-from ._mktinfo import (
-    Symbol,  # legacy
-    MktPair,
-    Asset,
+from .calc import (
+    iter_by_dt,
 )
+
+if TYPE_CHECKING:
+    from ..data._symcache import (
+        SymbologyCache,
+    )
 
 log = get_logger(__name__)
 
 
+TxnType = Literal[
+    'clear',
+    'transfer',
+
+    # TODO: see https://github.com/pikers/piker/issues/510
+    # 'split',
+    # 'rename',
+    # 'resize',
+    # 'removal',
+]
+
+
 class Transaction(Struct, frozen=True):
 
-    # TODO: unify this with the `MktPair`,
-    # once we have that as a required field,
-    # we don't really need the fqme any more..
+    # NOTE: this is a unified acronym also used in our `MktPair`
+    # and can stand for any of a
+    # "fully qualified <blank> endpoint":
+    # - "market" in the case of financial trades
+    #   (btcusdt.spot.binance).
+    # - "merkel (tree)" aka a blockchain system "wallet tranfers"
+    #   (btc.blockchain)
+    # - "money" for tradtitional (digital databases)
+    #   *bank accounts* (usd.swift, eur.sepa)
     fqme: str
 
-    tid: Union[str, int]  # unique transaction id
+    tid: str | int  # unique transaction id
     size: float
     price: float
     cost: float  # commisions or other additional costs
-    dt: datetime
+    dt: DateTime
+
+    # the "event type" in terms of "market events" see above and
+    # https://github.com/pikers/piker/issues/510
+    etype: TxnType = 'clear'
 
     # TODO: we can drop this right since we
     # can instead expect the backend to provide this
     # via the `MktPair`?
-    expiry: datetime | None = None
-
-    # TODO: drop the Symbol type, construct using
-    # t.sys (the transaction system)
-
-    # the underlying "transaction system", normally one of a ``MktPair``
-    # (a description of a tradable double auction) or a ledger-recorded
-    # ("ledger" in any sense as long as you can record transfers) of any
-    # sort) ``Asset``.
-    sym: MktPair | Asset | Symbol | None = None
-
-    @property
-    def sys(self) -> Symbol:
-        return self.sym
+    expiry: DateTime | None = None
 
     # (optional) key-id defined by the broker-service backend which
     # ensures the instrument-symbol market key for this record is unique
@@ -88,15 +100,16 @@ class Transaction(Struct, frozen=True):
     # service.
     bs_mktid: str | int | None = None
 
-    def to_dict(self) -> dict:
-        dct = super().to_dict()
-
-        # TODO: switch to sys!
-        dct.pop('sym')
+    def to_dict(
+        self,
+        **kwargs,
+    ) -> dict:
+        dct: dict[str, Any] = super().to_dict(**kwargs)
 
         # ensure we use a pendulum formatted
         # ISO style str here!@
         dct['dt'] = str(self.dt)
+
         return dct
 
 
@@ -108,16 +121,44 @@ class TransactionLedger(UserDict):
     outside.
 
     '''
+    # NOTE: see `open_trade_ledger()` for defaults, this should
+    # never be constructed manually!
     def __init__(
         self,
         ledger_dict: dict,
         file_path: Path,
+        account: str,
+        mod: ModuleType,  # broker mod
         tx_sort: Callable,
+        symcache: SymbologyCache,
 
     ) -> None:
-        self.file_path = file_path
-        self.tx_sort = tx_sort
+        self.account: str = account
+        self.file_path: Path = file_path
+        self.mod: ModuleType = mod
+        self.tx_sort: Callable = tx_sort
+
+        self._symcache: SymbologyCache = symcache
+
+        # any added txns we keep in that form for meta-data
+        # gathering purposes
+        self._txns: dict[str, Transaction] = {}
+
         super().__init__(ledger_dict)
+
+    def __repr__(self) -> str:
+        return (
+            f'TransactionLedger: {len(self)}\n'
+            f'{pformat(list(self.data))}'
+        )
+
+    @property
+    def symcache(self) -> SymbologyCache:
+        '''
+        Read-only ref to backend's ``SymbologyCache``.
+
+        '''
+        return self._symcache
 
     def update_from_t(
         self,
@@ -129,14 +170,14 @@ class TransactionLedger(UserDict):
 
         '''
         self.data[t.tid] = t.to_dict()
+        self._txns[t.tid] = t
 
-    def iter_trans(
+    def iter_txns(
         self,
-        mkt_by_fqme: dict[str, MktPair],
-        broker: str = 'paper',
+        symcache: SymbologyCache | None = None,
 
     ) -> Generator[
-        tuple[str, Transaction],
+        Transaction,
         None,
         None,
     ]:
@@ -145,128 +186,124 @@ class TransactionLedger(UserDict):
         form via generator.
 
         '''
-        if broker != 'paper':
-            raise NotImplementedError('Per broker support not dun yet!')
+        symcache = symcache or self._symcache
 
-            # TODO: lookup some standard normalizer
-            # func in the backend?
-            # from ..brokers import get_brokermod
-            # mod = get_brokermod(broker)
-            # trans_dict = mod.norm_trade_records(self.data)
-
-            # NOTE: instead i propose the normalizer is
-            # a one shot routine (that can be lru cached)
-            # and instead call it for each entry incrementally:
-            # normer = mod.norm_trade_record(txdict)
-
-        # TODO: use tx_sort here yah?
-        for txdict in self.tx_sort(self.data.values()):
-        # for tid, txdict in self.data.items():
-            # special field handling for datetimes
-            # to ensure pendulum is used!
-            tid: str = txdict['tid']
-            fqme: str = txdict.get('fqme') or txdict['fqsn']
-            dt: DateTime = parse(txdict['dt'])
-            expiry: str | None = txdict.get('expiry')
-
-            if not (mkt := mkt_by_fqme.get(fqme)):
-                # we can't build a trans if we don't have
-                # the ``.sys: MktPair`` info, so skip.
-                continue
-
-            tx = Transaction(
-                fqme=fqme,
-                tid=txdict['tid'],
-                dt=dt,
-                price=txdict['price'],
-                size=txdict['size'],
-                cost=txdict.get('cost', 0),
-                bs_mktid=txdict['bs_mktid'],
-
-                # TODO: change to .sys!
-                sym=mkt,
-                expiry=parse(expiry) if expiry else None,
+        if self.account == 'paper':
+            from piker.clearing import _paper_engine
+            norm_trade: Callable = partial(
+                _paper_engine.norm_trade,
+                brokermod=self.mod,
             )
-            yield tid, tx
 
-    def to_trans(
+        else:
+            norm_trade: Callable = self.mod.norm_trade
+
+        # datetime-sort and pack into txs
+        for tid, txdict in self.tx_sort(self.data.items()):
+            txn: Transaction = norm_trade(
+                tid,
+                txdict,
+                pairs=symcache.pairs,
+                symcache=symcache,
+            )
+            yield txn
+
+    def to_txns(
         self,
-        **kwargs,
+        symcache: SymbologyCache | None = None,
 
     ) -> dict[str, Transaction]:
         '''
-        Return entire output from ``.iter_trans()`` in a ``dict``.
+        Return entire output from ``.iter_txns()`` in a ``dict``.
 
         '''
-        return dict(self.iter_trans(**kwargs))
+        txns: dict[str, Transaction] = {}
+        for t in self.iter_txns(symcache=symcache):
 
-    def write_config(
-        self,
+            if not t:
+                log.warning(f'{self.mod.name}:{self.account} TXN is -> {t}')
+                continue
 
-    ) -> None:
+            txns[t.tid] = t
+
+        return txns
+
+    def write_config(self) -> None:
         '''
-        Render the self.data ledger dict to it's TOML file form.
+        Render the self.data ledger dict to its TOML file form.
+
+        ALWAYS order datetime sorted!
 
         '''
-        cpy = self.data.copy()
+        is_paper: bool = self.account == 'paper'
+
+        symcache: SymbologyCache = self._symcache
         towrite: dict[str, Any] = {}
-        for tid, trans in cpy.items():
-
-            # drop key for non-expiring assets
-            txdict = towrite[tid] = self.data[tid]
+        for tid, txdict in self.tx_sort(self.data.copy()):
+            # write blank-str expiry for non-expiring assets
             if (
                 'expiry' in txdict
                 and txdict['expiry'] is None
             ):
-                txdict.pop('expiry')
+                txdict['expiry'] = ''
 
-            # re-write old acro-key
-            fqme = txdict.get('fqsn')
-            if fqme:
+            # (maybe) re-write old acro-key
+            if (
+                is_paper
+                # if symcache is empty/not supported (yet), don't
+                # bother xD
+                and symcache.mktmaps
+            ):
+                fqme: str = txdict.pop('fqsn', None) or txdict['fqme']
+                bs_mktid: str | None = txdict.get('bs_mktid')
+
+                if (
+
+                    fqme not in symcache.mktmaps
+                    or (
+                        # also try to see if this is maybe a paper
+                        # engine ledger in which case the bs_mktid
+                        # should be the fqme as well!
+                        bs_mktid
+                        and fqme != bs_mktid
+                    )
+                ):
+                    # always take any (paper) bs_mktid if defined and
+                    # in the backend's cache key set.
+                    if bs_mktid in symcache.mktmaps:
+                        fqme: str = bs_mktid
+                    else:
+                        best_fqme: str = list(symcache.search(fqme))[0]
+                        log.warning(
+                            f'Could not find FQME: {fqme} in qualified set?\n'
+                            f'Qualifying and expanding {fqme} -> {best_fqme}'
+                        )
+                        fqme = best_fqme
+
+                if (
+                    bs_mktid
+                    and bs_mktid != fqme
+                ):
+                    # in paper account case always make sure both the
+                    # fqme and bs_mktid are fully qualified..
+                    txdict['bs_mktid'] = fqme
+
+                # in paper ledgers always write the latest
+                # symbology key field: an FQME.
                 txdict['fqme'] = fqme
+
+            towrite[tid] = txdict
 
         with self.file_path.open(mode='wb') as fp:
             tomli_w.dump(towrite, fp)
 
 
-def iter_by_dt(
-    records: dict[str, dict[str, Any]] | list[dict],
-
-    # NOTE: parsers are looked up in the insert order
-    # so if you know that the record stats show some field
-    # is more common then others, stick it at the top B)
-    parsers: dict[tuple[str], Callable] = {
-        'dt': None,  # parity case
-        'datetime': parse,  # datetime-str
-        'time': from_timestamp,  # float epoch
-    },
-    key: Callable | None = None,
-
-) -> Iterator[tuple[str, dict]]:
-    '''
-    Iterate entries of a ``records: dict`` table sorted by entry recorded
-    datetime presumably set at the ``'dt'`` field in each entry.
-
-    '''
-    def dyn_parse_to_dt(txdict: dict[str, Any]) -> DateTime:
-        k, v, parser = next(
-            (k, txdict[k], parsers[k]) for k in parsers if k in txdict
-        )
-        return parser(v) if parser else v
-
-    if isinstance(records, dict):
-        records = records.values()
-
-    for entry in sorted(
-        records,
-        key=key or dyn_parse_to_dt,
-    ):
-        yield entry
-
-
 def load_ledger(
     brokername: str,
     acctid: str,
+
+    # for testing or manual load from file
+    dirpath: Path | None = None,
 
 ) -> tuple[dict, Path]:
     '''
@@ -282,7 +319,11 @@ def load_ledger(
     except ModuleNotFoundError:
         import tomli as tomllib
 
-    ldir: Path = config._config_dir / 'accounting' / 'ledgers'
+    ldir: Path = (
+        dirpath
+        or
+        config._config_dir / 'accounting' / 'ledgers'
+    )
     if not ldir.is_dir():
         ldir.mkdir()
 
@@ -308,8 +349,15 @@ def open_trade_ledger(
     broker: str,
     account: str,
 
+    allow_from_sync_code: bool = False,
+    symcache: SymbologyCache | None = None,
+
     # default is to sort by detected datetime-ish field
     tx_sort: Callable = iter_by_dt,
+    rewrite: bool = False,
+
+    # for testing or manual load from file
+    _fp: Path | None = None,
 
 ) -> Generator[TransactionLedger, None, None]:
     '''
@@ -321,18 +369,52 @@ def open_trade_ledger(
     name as defined in the user's ``brokers.toml`` config.
 
     '''
-    ledger_dict, fpath = load_ledger(broker, account)
+    from ..brokers import get_brokermod
+    mod: ModuleType = get_brokermod(broker)
+
+    ledger_dict, fpath = load_ledger(
+        broker,
+        account,
+        dirpath=_fp,
+    )
     cpy = ledger_dict.copy()
+
+    # XXX NOTE: if not provided presume we are being called from
+    # sync code and need to maybe run `trio` to generate..
+    if symcache is None:
+
+        # XXX: be mega pendantic and ensure the caller knows what
+        # they're doing!
+        if not allow_from_sync_code:
+            raise RuntimeError(
+                'You MUST set `allow_from_sync_code=True` when '
+                'calling `open_trade_ledger()` from sync code! '
+                'If you are calling from async code you MUST '
+                'instead pass a `symcache: SymbologyCache`!'
+            )
+
+        from ..data._symcache import (
+            get_symcache,
+        )
+        symcache: SymbologyCache = get_symcache(broker)
+
+    assert symcache
+
     ledger = TransactionLedger(
         ledger_dict=cpy,
         file_path=fpath,
-        tx_sort=tx_sort,
+        account=account,
+        mod=mod,
+        symcache=symcache,
+        tx_sort=getattr(mod, 'tx_sort', tx_sort),
     )
     try:
         yield ledger
     finally:
-        if ledger.data != ledger_dict:
-
+        if (
+            ledger.data != ledger_dict
+            or rewrite
+        ):
             # TODO: show diff output?
             # https://stackoverflow.com/questions/12956957/print-diff-of-python-dictionaries
             log.info(f'Updating ledger for {fpath}:\n')

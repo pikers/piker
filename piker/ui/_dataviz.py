@@ -62,7 +62,7 @@ from ._curve import (
 )
 from ._render import Renderer
 from ..log import get_logger
-from .._profile import (
+from ..toolz.profile import (
     Profiler,
     pg_profile_enabled,
     ms_slower_then,

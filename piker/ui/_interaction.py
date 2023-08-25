@@ -32,23 +32,44 @@ from typing import (
 import pyqtgraph as pg
 # from pyqtgraph.GraphicsScene import mouseEvents
 from PyQt5.QtWidgets import QGraphicsSceneMouseEvent as gs_mouse
-from PyQt5.QtCore import Qt, QEvent
-from pyqtgraph import ViewBox, Point, QtCore
+from PyQt5.QtGui import (
+    QWheelEvent,
+)
+from PyQt5.QtCore import (
+    Qt,
+    QEvent,
+)
+from pyqtgraph import (
+    ViewBox,
+    Point,
+    QtCore,
+)
 from pyqtgraph import functions as fn
 import numpy as np
 import trio
 
 from ..log import get_logger
-from .._profile import Profiler
-from .._profile import pg_profile_enabled, ms_slower_then
+from ..toolz import (
+    Profiler,
+    pg_profile_enabled,
+    ms_slower_then,
+)
 from .view_mode import overlay_viewlists
 # from ._style import _min_points_to_show
 from ._editors import SelectRect
 from . import _event
 
 if TYPE_CHECKING:
-    from ._chart import ChartPlotWidget
+    # from ._search import (
+    #     SearchWidget,
+    # )
+    from ._chart import (
+        ChartnPane,
+        ChartPlotWidget,
+        GodWidget,
+    )
     from ._dataviz import Viz
+    from .order_mode import OrderMode
 
 
 log = get_logger(__name__)
@@ -80,7 +101,8 @@ async def handle_viewmode_kb_inputs(
 
 ) -> None:
 
-    order_mode = view.order_mode
+    order_mode: OrderMode = view.order_mode
+    godw: GodWidget = order_mode.godw  # noqa
 
     # track edge triggered keys
     # (https://en.wikipedia.org/wiki/Interrupt#Triggering_methods)
@@ -144,29 +166,30 @@ async def handle_viewmode_kb_inputs(
             if mods == Qt.ControlModifier:
                 ctrl = True
 
-            # UI REPL-shell
+            # UI REPL-shell, with ctrl-p (for "pause")
             if (
-                ctrl and key in {
-                    Qt.Key_U,
+                ctrl
+                and key in {
+                    Qt.Key_P,
                 }
             ):
                 import tractor
-                god = order_mode.godw  # noqa
                 feed = order_mode.feed  # noqa
                 chart = order_mode.chart  # noqa
                 viz = chart.main_viz  # noqa
                 vlm_chart = chart.linked.subplots['volume']  # noqa
                 vlm_viz = vlm_chart.main_viz  # noqa
                 dvlm_pi = vlm_chart._vizs['dolla_vlm'].plot  # noqa
-                await tractor.breakpoint()
+                await tractor.pause()
                 view.interact_graphics_cycle()
 
             # SEARCH MODE #
             # ctlr-<space>/<l> for "lookup", "search" -> open search tree
             if (
-                ctrl and key in {
+                ctrl
+                and key in {
                     Qt.Key_L,
-                    Qt.Key_Space,
+                    # Qt.Key_Space,
                 }
             ):
                 godw = view._chart.linked.godwidget
@@ -174,19 +197,53 @@ async def handle_viewmode_kb_inputs(
                 godw.search.focus()
 
             # esc and ctrl-c
-            if key == Qt.Key_Escape or (ctrl and key == Qt.Key_C):
+            if (
+                key == Qt.Key_Escape
+                or (
+                    ctrl
+                    and key == Qt.Key_C
+                )
+            ):
                 # ctrl-c as cancel
                 # https://forum.qt.io/topic/532/how-to-catch-ctrl-c-on-a-widget/9
                 view.select_box.clear()
                 view.linked.focus()
 
             # cancel order or clear graphics
-            if key == Qt.Key_C or key == Qt.Key_Delete:
+            if (
+                key == Qt.Key_C
+                or key == Qt.Key_Delete
+            ):
 
                 order_mode.cancel_orders_under_cursor()
 
             # View modes
-            if key == Qt.Key_R:
+            if (
+                ctrl
+                and (
+                    key == Qt.Key_Equal
+                    or key == Qt.Key_I
+                )
+            ):
+                view.wheelEvent(
+                    ev=None,
+                    axis=None,
+                    delta=view.def_delta,
+                )
+            elif (
+                ctrl
+                and (
+                    key == Qt.Key_Minus
+                    or key == Qt.Key_O
+                )
+            ):
+                view.wheelEvent(
+                    ev=None,
+                    axis=None,
+                    delta=-view.def_delta,
+                )
+
+            elif key == Qt.Key_R:
 
                 # NOTE: seems that if we don't yield a Qt render
                 # cycle then the m4 downsampled curves will show here
@@ -232,15 +289,47 @@ async def handle_viewmode_kb_inputs(
 
         # Toggle position config pane
         if (
-            ctrl and key in {
-                Qt.Key_P,
+            ctrl
+            and key in {
+                Qt.Key_Space,
             }
         ):
-            pp_pane = order_mode.current_pp.pane
-            if pp_pane.isHidden():
-                pp_pane.show()
+            # searchw: SearchWidget = godw.search
+            # pp_pane = order_mode.current_pp.pane
+            qframes: list[ChartnPane] = []
+
+            for linked in (
+                godw.rt_linked,
+                godw.hist_linked,
+            ):
+                for chartw in (
+                    [linked.chart]
+                    +
+                    list(linked.subplots.values())
+                ):
+                    qframes.append(
+                        chartw.qframe
+                    )
+
+            # NOTE: place priority on FIRST hiding all
+            # panes before showing them.
+            # TODO: make this more "fancy"?
+            # - maybe look at majority of hidden states and then
+            #   flip based on that?
+            # - move these loops into the chart APIs?
+            # - store the UX-state for a given feed/symbol and
+            #   apply when opening a new one (eg. if panes were
+            #   hidden then also hide them on newly loaded mkt
+            #   feeds).
+            if not any(
+                qf.sidepane.isHidden() for qf in qframes
+            ):
+                for qf in qframes:
+                    qf.sidepane.hide()
+
             else:
-                pp_pane.hide()
+                for qf in qframes:
+                    qf.sidepane.show()
 
         # ORDER MODE
         # ----------
@@ -258,7 +347,7 @@ async def handle_viewmode_kb_inputs(
             # show the pp size label only if there is
             # a non-zero pos existing
             tracker = order_mode.current_pp
-            if tracker.live_pp.size:
+            if tracker.live_pp.cumsize:
                 tracker.nav.show()
 
             # TODO: show pp config mini-params in status bar widget
@@ -375,6 +464,8 @@ class ChartView(ViewBox):
 
     '''
     mode_name: str = 'view'
+    def_delta: float = 616 * 6
+    def_scale_factor: float = 1.016 ** (def_delta * -1 / 20)
 
     def __init__(
         self,
@@ -499,8 +590,9 @@ class ChartView(ViewBox):
 
     def wheelEvent(
         self,
-        ev,
-        axis=None,
+        ev: QWheelEvent | None = None,
+        axis: int | None = None,
+        delta: float | None = None,
     ):
         '''
         Override "center-point" location for scrolling.
@@ -511,6 +603,12 @@ class ChartView(ViewBox):
         TODO: PR a method into ``pyqtgraph`` to make this configurable
 
         '''
+        # NOTE: certain operations are only avail when this handler is
+        # actually called on events.
+        if ev is None:
+            assert delta
+            assert axis is None
+
         linked = self.linked
         if (
             not linked
@@ -521,7 +619,7 @@ class ChartView(ViewBox):
             mask = [False, False]
             mask[axis] = self.state['mouseEnabled'][axis]
         else:
-            mask = self.state['mouseEnabled'][:]
+            mask: list[bool] = self.state['mouseEnabled'][:]
 
         chart = self.linked.chart
 
@@ -542,8 +640,15 @@ class ChartView(ViewBox):
         #     return
 
         # actual scaling factor
-        s = 1.016 ** (ev.delta() * -1 / 20)  # self.state['wheelScaleFactor'])
-        s = [(None if m is False else s) for m in mask]
+        delta: float = ev.delta() if ev else delta
+        scale_factor: float = 1.016 ** (delta * -1 / 20)
+
+        # NOTE: if elem is False -> None meaning "do not scale that
+        # axis".
+        scales: list[float | bool] = [
+            (None if m is False else scale_factor)
+            for m in mask
+        ]
 
         if (
             # zoom happened on axis
@@ -566,7 +671,7 @@ class ChartView(ViewBox):
                 ).map(ev.pos())
             )
             # scale_y = 1.3 ** (center.y() * -1 / 20)
-            self.scaleBy(s, center)
+            self.scaleBy(scales, center)
 
         # zoom in view-box area
         else:
@@ -581,7 +686,7 @@ class ChartView(ViewBox):
 
             # NOTE: scroll "around" the right most datum-element in view
             # gives the feeling of staying "pinned" in place.
-            self.scaleBy(s, focal)
+            self.scaleBy(scales, focal)
 
             # XXX: the order of the next 2 lines i'm pretty sure
             # matters, we want the resize to trigger before the graphics
@@ -601,7 +706,8 @@ class ChartView(ViewBox):
             self.interact_graphics_cycle()
             self.interact_graphics_cycle()
 
-            ev.accept()
+            if ev:
+                ev.accept()
 
     def mouseDragEvent(
         self,
