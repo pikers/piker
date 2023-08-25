@@ -727,11 +727,15 @@ class Client:
                 or tract.exchange
                 or exch
             )
-            pattern: str = f'{symbol}.{exch}'
+            pattern: str = f'{symbol}.{exch.lower()}'
             expiry: str = tract.lastTradeDateOrContractMonth
             # add an entry with expiry suffix if available
             if expiry:
                 pattern += f'.{expiry}'
+
+            # since pos update msgs will always have the full fqme
+            # with suffix?
+            pattern += '.ib'
 
             # directly cache the input pattern to the output
             # contract match as well as by the IB-internal conId.
