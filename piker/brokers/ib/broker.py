@@ -1249,7 +1249,10 @@ async def deliver_trade_events(
                 if err['reqid'] == -1:
                     log.error(f'TWS external order error:\n{pformat(err)}')
 
-                flow: dict = dict(flows.get(reqid)) or  {}
+                flow: dict = dict(
+                    flows.get(reqid)
+                    or {}
+                )
 
                 # TODO: we don't want to relay data feed / lookup errors
                 # so we need some further filtering logic here..
