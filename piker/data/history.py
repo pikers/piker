@@ -418,6 +418,12 @@ async def start_backfill(
 
                 start_dt = from_timestamp(start)
                 end_dt = from_timestamp(end)
+
+                # if we get a baddly ordered timestamp
+                # pair, imeeditately stop backfilling.
+                if end_dt < start_dt:
+                    break
+
                 (
                     array,
                     next_start_dt,
