@@ -786,7 +786,7 @@ class Client:
         timeout: float = 1,
         raise_on_timeout: bool = False,
 
-    ) -> Ticker:
+    ) -> Ticker | None:
         '''
         Return a single (snap) quote for symbol.
 
@@ -811,7 +811,7 @@ class Client:
                 except TimeoutError:
                     if raise_on_timeout:
                         raise
-                    return tkr
+                    return None
 
                 if tkr:
                     break
