@@ -76,7 +76,7 @@ setup(
         'pendulum', # easier datetimes
         'bidict',  # 2 way map
         'cython',
-        'numpy',
+        'numpy==1.24',
         'numba',
 
         # UI
