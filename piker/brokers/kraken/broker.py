@@ -513,6 +513,7 @@ async def open_trade_dialog(
             ledger_trans: dict[str, Transaction] = await norm_trade_records(
                 ledger,
                 client,
+                api_name_set='xname',
             )
 
             if not acnt.pps:
@@ -534,6 +535,7 @@ async def open_trade_dialog(
             api_trans: dict[str, Transaction] = await norm_trade_records(
                 tids2trades,
                 client,
+                api_name_set='xname',
             )
 
             # retrieve kraken reported balances
@@ -743,6 +745,7 @@ async def handle_order_updates(
                 new_trans = await norm_trade_records(
                     trades,
                     client,
+                    api_name_set='wsname',
                 )
                 ppmsgs = trades2pps(
                     acnt,

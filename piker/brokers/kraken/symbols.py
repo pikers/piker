@@ -43,7 +43,7 @@ from piker.accounting._mktinfo import (
 
 # https://www.kraken.com/features/api#get-tradable-pairs
 class Pair(Struct):
-    respname: str  # idiotic bs_mktid equiv i guess?
+    xname: str  # idiotic bs_mktid equiv i guess?
     altname: str  # alternate pair name
     wsname: str  # WebSocket pair name (if available)
     aclass_base: str  # asset class of base component
@@ -94,7 +94,7 @@ class Pair(Struct):
         make up their minds on a better key set XD
 
         '''
-        return self.respname
+        return self.xname
 
     @property
     def price_tick(self) -> Decimal:

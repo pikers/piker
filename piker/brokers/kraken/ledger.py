@@ -64,9 +64,19 @@ def norm_trade(
         'sell': -1,
     }[record['type']]
 
-    rest_pair_key: str = record['pair']
-    pair: Pair = pairs[rest_pair_key]
+    # NOTE: this value may be either the websocket OR the rest schema
+    # so we need to detect the key format and then choose the
+    # correct symbol lookup table to evetually get a ``Pair``..
+    # See internals of `Client.asset_pairs()` for deats!
+    src_pair_key: str = record['pair']
 
+    # XXX: kraken's data engineering is soo bad they require THREE
+    # different pair schemas (more or less seemingly tied to
+    # transport-APIs)..LITERALLY they return different market id
+    # pairs in the ledger endpoints vs. the websocket event subs..
+    # lookup pair using appropriately provided tabled depending
+    # on API-key-schema..
+    pair: Pair = pairs[src_pair_key]
     fqme: str = pair.bs_fqme.lower() + '.kraken'
 
     return Transaction(
@@ -83,6 +93,7 @@ def norm_trade(
 async def norm_trade_records(
     ledger: dict[str, Any],
     client: Client,
+    api_name_set: str = 'xname',
 
 ) -> dict[str, Transaction]:
     '''
@@ -97,11 +108,16 @@ async def norm_trade_records(
         # mkt: MktPair = (await get_mkt_info(manual_fqme))[0]
         # fqme: str = mkt.fqme
         # assert fqme == manual_fqme
+        pairs: dict[str, Pair] = {
+            'xname': client._AssetPairs,
+            'wsname': client._wsnames,
+            'altname': client._altnames,
+        }[api_name_set]
 
         records[tid] = norm_trade(
             tid,
             record,
-            pairs=client._AssetPairs,
+            pairs=pairs,
         )
 
     return records

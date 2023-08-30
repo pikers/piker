@@ -234,10 +234,13 @@ async def _reconnect_forever(
             f'{url} trying (RE)CONNECT'
         )
 
-        async with trio.open_nursery() as n:
-            cs = nobsws._cs = n.cancel_scope
-            ws: WebSocketConnection
-            async with open_websocket_url(url) as ws:
+        ws: WebSocketConnection
+        try:
+            async with (
+                trio.open_nursery() as n,
+                open_websocket_url(url) as ws,
+            ):
+                cs = nobsws._cs = n.cancel_scope
                 nobsws._ws = ws
                 log.info(
                     f'{src_mod}\n'
@@ -269,9 +272,11 @@ async def _reconnect_forever(
                 # to let tasks run **inside** the ws open block above.
                 nobsws._connected.set()
                 await trio.sleep_forever()
+        except HandshakeError:
+            log.exception(f'Retrying connection')
 
-            # ws open block end
-        # nursery block end
+        # ws & nursery block ends
+
         nobsws._connected = trio.Event()
         if cs.cancelled_caught:
             log.cancel(
@@ -284,7 +289,8 @@ async def _reconnect_forever(
                 and not nobsws._connected.is_set()
             )
 
-        # -> from here, move to next reconnect attempt
+        # -> from here, move to next reconnect attempt iteration
+        # in the while loop above Bp
 
     else:
         log.exception(

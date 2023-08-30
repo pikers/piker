@@ -106,15 +106,18 @@ class InvalidKey(ValueError):
 
 class Client:
 
-    # symbol mapping from all names to the altname
-    _altnames: dict[str, str] = {}
-
-    # key-ed by kraken's own bs_mktids (like fricking "XXMRZEUR")
-    # with said keys used directly from EP responses so that ledger
-    # parsing can be easily accomplished from both trade-event-msgs
-    # and offline toml files
+    # assets and mkt pairs are key-ed by kraken's ReST response
+    # symbol-bs_mktids (we call them "X-keys" like fricking
+    # "XXMRZEUR"). these keys used directly since ledger endpoints
+    # return transaction sets keyed with the same set!
     _Assets: dict[str, Asset] = {}
     _AssetPairs: dict[str, Pair] = {}
+
+    # offer lookup tables for all .altname and .wsname
+    # to the equivalent .xname so that various symbol-schemas
+    # can be mapped to `Pair`s in the tables above.
+    _altnames: dict[str, str] = {}
+    _wsnames: dict[str, str] = {}
 
     # key-ed by `Pair.bs_fqme: str`, and thus used for search
     # allowing for lookup using piker's own FQME symbology sys.
@@ -209,8 +212,8 @@ class Client:
         by_bsmktid: dict[str, dict] = resp['result']
 
         balances: dict = {}
-        for respname, bal in by_bsmktid.items():
-            asset: Asset = self._Assets[respname]
+        for xname, bal in by_bsmktid.items():
+            asset: Asset = self._Assets[xname]
 
             # TODO: which KEY should we use? it's used to index
             # the `Account.pps: dict` ..
@@ -367,7 +370,6 @@ class Client:
             asset_key: str = entry['asset']
             asset: Asset = self._Assets[asset_key]
             asset_key: str = asset.name.lower()
-            # asset_key: str = self._altnames[asset_key].lower()
 
             # XXX: this is in the asset units (likely) so it isn't
             # quite the same as a commisions cost necessarily..)
@@ -473,25 +475,31 @@ class Client:
             if err:
                 raise SymbolNotFound(pair_patt)
 
-            # NOTE: we key pairs by our custom defined `.bs_fqme`
-            # field since we want to offer search over this key
-            # set, callers should fill out lookup tables for
-            # kraken's bs_mktid keys to map to these keys!
-            for key, data in resp['result'].items():
-                pair = Pair(respname=key, **data)
+            # NOTE: we try to key pairs by our custom defined
+            # `.bs_fqme` field since we want to offer search over
+            # this pattern set, callers should fill out lookup
+            # tables for kraken's bs_mktid keys to map to these
+            # keys!
+            # XXX: FURTHER kraken's data eng team decided to offer
+            # 3 frickin market-pair-symbol key sets depending on
+            # which frickin API is being used.
+            # Example for the trading pair 'LTC<EUR'
+            # - the "X-key" from rest eps 'XLTCZEUR'
+            # - the "websocket key" from ws msgs is 'LTC/EUR'
+            # - the "altname key" also delivered in pair info is 'LTCEUR'
+            for xkey, data in resp['result'].items():
 
-                # always cache so we can possibly do faster lookup
-                self._AssetPairs[key] = pair
+                # NOTE: always cache in pairs tables for faster lookup
+                pair = Pair(xname=xkey, **data)
 
-                bs_fqme: str = pair.bs_fqme
-
-                self._pairs[bs_fqme] = pair
-
-                # register the piker pair under all monikers, a giant flat
-                # surjection of all possible (and stupid) kraken names to
-                # the FMQE style piker key.
-                self._altnames[pair.altname] = bs_fqme
-                self._altnames[pair.wsname] = bs_fqme
+                # register the above `Pair` structs for all
+                # key-sets/monikers: a set of 4 (frickin) tables
+                # acting as a combined surjection of all possible
+                # (and stupid) kraken names to their `Pair` obj.
+                self._AssetPairs[xkey] = pair
+                self._pairs[pair.bs_fqme] = pair
+                self._altnames[pair.altname] = pair
+                self._wsnames[pair.wsname] = pair
 
         if pair_patt is not None:
             return next(iter(self._pairs.items()))[1]
@@ -506,12 +514,13 @@ class Client:
         Load all market pair info build and cache it for downstream
         use.
 
-        An ``._altnames: dict[str, str]`` is available for looking
-        up the piker-native FQME style `Pair.bs_fqme: str` for any
-        input of the three (yes, it's that idiotic) available
-        key-sets that kraken frickin offers depending on the API
-        including the .altname, .wsname and the weird ass default
-        set they return in rest responses..
+        Multiple pair info lookup tables (like ``._altnames:
+        dict[str, str]``) are created for looking up the
+        piker-native `Pair`-struct from any input of the three
+        (yes, it's that idiotic..) available symbol/pair-key-sets
+        that kraken frickin offers depending on the API including
+        the .altname, .wsname and the weird ass default set they
+        return in ReST responses .xname..
 
         '''
         if (
@@ -628,7 +637,7 @@ class Client:
     def to_bs_fqme(
         cls,
         pair_str: str
-    ) -> tuple[str, Pair]:
+    ) -> str:
         '''
         Normalize symbol names to to a 3x3 pair from the global
         definition map which we build out from the data retreived from
@@ -636,7 +645,7 @@ class Client:
 
         '''
         try:
-            return cls._altnames[pair_str.upper()]
+            return cls._altnames[pair_str.upper()].bs_fqme
         except KeyError as ke:
             raise SymbolNotFound(f'kraken has no {ke.args[0]}')
 
