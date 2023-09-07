@@ -1,8 +1,24 @@
+# piker: trading gear for hackers
+# Copyright (C) 2018-present (in stewardship of pikers)
+# Tyler Goodlet
+
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
-# ------ - ------
 
+# ------ - ------
 
 [tool.poetry]
 name = "piker"
@@ -11,8 +27,30 @@ description = "trading gear for hackers"
 authors = ["Tyler Goodlet <jgbt@protonmail.com>"]
 license = "AGPLv3"
 readme = "README.rst"
-# ------ - ------
 
+# TODO: add meta-data from setup.py
+# keywords=[
+#     "async",
+#     "trading",
+#     "finance",
+#     "quant",
+#     "charting",
+# ],
+# classifiers=[
+#     'Development Status :: 3 - Alpha',
+#     'License :: OSI Approved :: ',
+#     'Operating System :: POSIX :: Linux',
+#     "Programming Language :: Python :: Implementation :: CPython",
+#     "Programming Language :: Python :: 3 :: Only",
+#     "Programming Language :: Python :: 3.10",
+#     "Programming Language :: Python :: 3.11",
+#     'Intended Audience :: Financial and Insurance Industry',
+#     'Intended Audience :: Science/Research',
+#     'Intended Audience :: Developers',
+#     'Intended Audience :: Education',
+# ],
+
+# ------ - ------
 
 [tool.poetry.dependencies]
 asks = "^3.0.0"
@@ -46,22 +84,22 @@ git = 'https://github.com/pikers/asyncvnc.git'
 branch = 'main'
 
 [tool.poetry.dependencies.tomlkit]
-# git = 'https://github.com/pikers/tomlkit.git',
-# branch = 'piker_pin'
-path = "../tomlkit/"
-develop = true
-
-[tool.poetry.dependencies.tractor]
-# path = '../tractor/'
-# branch = 'asyncio_debugger_support'
-git = 'https://github.com/goodboy/tractor.git'
+git = 'https://github.com/pikers/tomlkit.git'
 branch = 'piker_pin'
 develop = true
+# path = "../tomlkit/"
+
+[tool.poetry.dependencies.tractor]
+git = 'https://github.com/goodboy/tractor.git'
+branch = 'asyncio_debugger_support'
+# branch = 'piker_pin'
+develop = true
+# path = '../tractor/'
+
 # ------ - ------
 
-
 [tool.poetry.group.uis]
-optional=true
+optional = true
 [tool.poetry.group.uis.dependencies]
 # https://python-poetry.org/docs/managing-dependencies/#dependency-groups
 # TODO: outstanding pkging issues on nixos
@@ -70,9 +108,9 @@ fuzzywuzzy = {extras = ["speedup"], version = "^0.18.0"}
 qdarkstyle = ">=3.0.2"
 pyqt5 = "^5.15.9"
 pyqtgraph = { git = 'https://github.com/pikers/pyqtgraph.git' }
-# pyqt6 = "^6.5.2"
-# ------ - ------
+pyqt6 = "^6.5.2"
 
+# ------ - ------
 
 [tool.poetry.group.dev]
 optional = true
@@ -90,8 +128,8 @@ elasticsearch = "^8.9.0"
 # - actor runtime control console like BEAM/OTP
 xonsh = "^0.14.0"  # XXX: explicit env install for shell use w nix
 prompt-toolkit = "^3.0.39"
-# ------ - ------
 
+# ------ - ------
 
 # TODO: add an `--only daemon` group for running non-ui / pikerd
 # service tree in distributed mode B)
@@ -103,4 +141,5 @@ prompt-toolkit = "^3.0.39"
 piker = 'piker.cli:cli'
 pikerd = 'piker.cli:pikerd'
 ledger = 'piker.accounting.cli:ledger'
+
 # ------ - ------
