@@ -1,28 +1,34 @@
 with (import <nixpkgs> {});
-with python310Packages;
+
 stdenv.mkDerivation {
-  name = "pip-env";
+  name = "poetry-env";
   buildInputs = [
     # System requirements.
     readline
 
     # TODO: hacky non-poetry install stuff we need to get rid of!!
-    virtualenv
-    setuptools
-    pip
-
-    # obviously, and see below for hacked linking
-    pyqt5
+    poetry
+    # virtualenv
+    # setuptools
+    # pip
 
     # Python requirements (enough to get a virtualenv going).
-    python310Full
+    python311Full
+
+    # obviously, and see below for hacked linking
+    python311Packages.pyqt5
+    python311Packages.pyqt5_sip
+    # python311Packages.qtpy
 
     # numerics deps
-    python310Packages.python-Levenshtein
-    python310Packages.fastparquet
-    python310Packages.polars
+    python311Packages.levenshtein
+    python311Packages.fastparquet
+    python311Packages.polars
 
   ];
+  # environment.sessionVariables = {
+  #   LD_LIBRARY_PATH = "${pkgs.stdenv.cc.cc.lib}/lib";
+  # };
   src = null;
   shellHook = ''
     # Allow the use of wheels.
@@ -30,13 +36,12 @@ stdenv.mkDerivation {
 
     # Augment the dynamic linker path
     export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:${R}/lib/R/lib:${readline}/lib
-
     export QT_QPA_PLATFORM_PLUGIN_PATH="${qt5.qtbase.bin}/lib/qt-${qt5.qtbase.version}/plugins";
 
-    if [ ! -d "venv" ]; then
-        virtualenv venv
+    if [ ! -d ".venv" ]; then
+        poetry install --with uis
     fi
 
-    source venv/bin/activate
+    poetry shell
   '';
 }
