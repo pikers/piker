@@ -6,6 +6,11 @@
 # - then manually ensuring all deps are converted over:
 # - add this file to the repo and commit it
 # - 
+
+# GROKin tips:
+# - CLI eps are (ostensibly) added via an `entry_points.txt`:
+#   - https://packaging.python.org/en/latest/specifications/entry-points/#file-format
+#   - https://github.com/nix-community/poetry2nix/blob/master/editable.nix#L49
 {
   description = "piker: trading gear for hackers (pkged with poetry2nix)";
 
@@ -101,7 +106,7 @@
             # won't be needed - thanks @k900:
             # https://github.com/nix-community/poetry2nix/pull/1257
             pyqt5 = prev.pyqt5.override {
-              withWebkit = false;
+              # withWebkit = false;
               preferWheel = true;
             };
 
@@ -124,55 +129,52 @@
 
       # WHY!? -> output-attrs that `nix develop` scans for:
       # https://nixos.org/manual/nix/stable/command-ref/new-cli/nix3-develop.html#flake-output-attributes
-      in {
-          packages = {
-            # piker = poetry2nix.legacyPackages.x86_64-linux.mkPoetryEditablePackage {
-            #   editablePackageSources = { piker = ./piker; };
+      in
+      rec {
+        packages = {
+          # piker = poetry2nix.legacyPackages.x86_64-linux.mkPoetryEditablePackage {
+          #   editablePackageSources = { piker = ./piker; };
 
-            piker = p2npkgs.mkPoetryApplication {
-              projectDir = projectDir;
+          piker = p2npkgs.mkPoetryApplication {
+            projectDir = projectDir;
 
-              # SEE ABOVE for auto-genned input set, override
-              # buncha deps with extras.. like `setuptools` mostly.
-              # TODO: maybe propose a patch to p2n to show that you
-              # can even do this in the edgecases docs?
-              overrides = ahot_overrides;
+            # SEE ABOVE for auto-genned input set, override
+            # buncha deps with extras.. like `setuptools` mostly.
+            # TODO: maybe propose a patch to p2n to show that you
+            # can even do this in the edgecases docs?
+            overrides = ahot_overrides;
 
-              # XXX: won't work on llvmlite..
-              # preferWheels = true;
-            };
+            # XXX: won't work on llvmlite..
+            # preferWheels = true;
           };
+        };
 
-          devShells.default = pkgs.mkShell {
-            # packages = [ poetry2nix.packages.${system}.poetry ];
-            packages = [ poetry2nix.packages.x86_64-linux.poetry ];
-            inputsFrom = [ self.packages.x86_64-linux.piker ];
+        # devShells.default = pkgs.mkShell {
+        #   projectDir = projectDir;
+        #   python = "python3.10";
+        #   overrides = ahot_overrides;
+        #   inputsFrom = [ self.packages.x86_64-linux.piker ];
+        #   packages = packages;
+        #   # packages = [ poetry2nix.packages.${system}.poetry ];
+        # };
 
-            # TODO: boot xonsh inside the poetry virtualenv when
-            # defined via a custom entry point?
-            # NOTE XXX: apparently DON'T do these..?
-            # shellHook = "poetry run xonsh";
-            # shellHook = "poetry shell";
-          };
-
-
-          # TODO: grok the difference here..
-          # - avoid re-cloning git repos on every develop entry..
-          # - ideally allow hacking on the src code of some deps
-          #   (tractor, pyqtgraph, tomlkit, etc.) WITHOUT having to
-          #   re-install them every time a change is made.
-
-          # devShells.default = (p2npkgs.mkPoetryEnv {
-          # # let {
-          # #   devEnv = p2npkgs.mkPoetryEnv {
-          #     projectDir = projectDir;
-          #     overrides = ahot_overrides;
-          #     inputsFrom = [ self.packages.x86_64-linux.piker ];
-          #   }).env.overrideAttrs (old: {
-          #       buildInputs = [ packages.piker ];
-          #     }
-          #   );
-
-        }
+        # TODO: grok the difference here..
+        # - avoid re-cloning git repos on every develop entry..
+        # - ideally allow hacking on the src code of some deps
+        #   (tractor, pyqtgraph, tomlkit, etc.) WITHOUT having to
+        #   re-install them every time a change is made.
+        # - boot a usable xonsh inside the poetry virtualenv when
+        #   defined via a custom entry point?
+        devShells.default = p2npkgs.mkPoetryEnv {
+        # env = p2npkgs.mkPoetryEnv {
+            projectDir = projectDir;
+            python = pkgs.python310;
+            overrides = ahot_overrides;
+            editablePackageSources = packages;
+              # piker = "./";
+              # tractor = "../tractor/";
+            # };  # wut?
+        };
+      }
     );  # end of .outputs scope
 }
