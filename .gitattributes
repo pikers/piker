@@ -1,0 +1,5 @@
+# Exclude .gitattributes from encryption
+.gitattributes !filter !diff
+
+# Encrypt a specific file
+brokers.toml filter=git-crypt diff=git-crypt
