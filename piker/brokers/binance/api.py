@@ -31,6 +31,8 @@ from pprint import pformat
 from typing import (
     Any,
     Callable,
+    Hashable,
+    Sequence,
     Type,
 )
 import hmac
@@ -549,7 +551,7 @@ class Client:
         if sym:
             return pair_table[sym]
         else:
-            self._pairs
+            return self._pairs
 
     async def get_assets(
         self,
@@ -596,14 +598,26 @@ class Client:
 
         fq_pairs: dict = await self.exch_info()
 
-        matches = fuzzy.extractBests(
-            pattern,
-            fq_pairs,
+        # TODO: cache this list like we were in
+        # `open_symbol_search()`?
+        keys: list[str] = list(fq_pairs)
+
+        matches: list[tuple[
+            Sequence[Hashable],  # matching input key
+            Any,  # scores
+            Any,
+        ]] = fuzzy.extract(
+            query=pattern.upper(),  # since all keys are uppercase
+            choices=keys,
             score_cutoff=50,
         )
         # repack in dict form
-        return {item[0]['symbol']: item[0]
-                for item in matches}
+        matched_pairs: dict[str, Pair] = {}
+        for item in matches:
+            pair_key: str = item[0]
+            matched_pairs[pair_key] = self._pairs[pair_key]
+
+        return matched_pairs
 
     async def bars(
         self,
