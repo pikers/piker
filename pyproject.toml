@@ -1,6 +1,6 @@
 # piker: trading gear for hackers
 # Copyright (C) 2018-present (in stewardship of pikers)
-# Tyler Goodlet
+# Tyler Goodlet and the pike pikes
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -102,9 +102,9 @@ develop = true
 optional = true
 [tool.poetry.group.uis.dependencies]
 # https://python-poetry.org/docs/managing-dependencies/#dependency-groups
-# TODO: outstanding pkging issues on nixos
-fuzzywuzzy = {extras = ["speedup"], version = "^0.18.0"}
-# fuzzywuzzy = "^0.18.0"
+# TODO: make sure the levenshtein shit compiles on nix..
+# rapidfuzz = {extras = ["speedup"], version = "^0.18.0"}
+rapidfuzz = "^3.2.0"
 qdarkstyle = ">=3.0.2"
 pyqt5 = "^5.15.9"
 pyqtgraph = { git = 'https://github.com/pikers/pyqtgraph.git' }
@@ -137,9 +137,6 @@ prompt-toolkit = "^3.0.39"
 # [tool.poetry.group.daemon.dependencies]
 
 [tool.poetry.scripts]
-# poetry = "poetry.console.application:main"
 piker = 'piker.cli:cli'
 pikerd = 'piker.cli:pikerd'
 ledger = 'piker.accounting.cli:ledger'
-
-# ------ - ------

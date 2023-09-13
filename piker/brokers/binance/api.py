@@ -42,7 +42,7 @@ from pendulum import (
     now,
 )
 import asks
-from fuzzywuzzy import process as fuzzy
+from rapidfuzz import process as fuzzy
 import numpy as np
 
 from piker import config

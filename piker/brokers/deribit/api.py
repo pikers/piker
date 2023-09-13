@@ -34,7 +34,7 @@ from typing import (
 import pendulum
 import trio
 from trio_typing import TaskStatus
-from fuzzywuzzy import process as fuzzy
+from rapidfuzz import process as fuzzy
 import numpy as np
 from tractor.trionics import (
     broadcast_receiver,

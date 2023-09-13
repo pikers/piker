@@ -35,7 +35,7 @@ from typing import (
 )
 from types import ModuleType
 
-from fuzzywuzzy import process as fuzzy
+from rapidfuzz import process as fuzzy
 import tomli_w  # for fast symbol cache writing
 import tractor
 import trio

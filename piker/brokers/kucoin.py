@@ -41,7 +41,7 @@ from typing import (
 import wsproto
 from uuid import uuid4
 
-from fuzzywuzzy import process as fuzzy
+from rapidfuzz import process as fuzzy
 from trio_typing import TaskStatus
 import asks
 from bidict import bidict

@@ -26,7 +26,7 @@ import time
 import trio
 from trio_typing import TaskStatus
 import pendulum
-from fuzzywuzzy import process as fuzzy
+from rapidfuzz import process as fuzzy
 import numpy as np
 import tractor
 

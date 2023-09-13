@@ -21,7 +21,7 @@ Symbology defs and search.
 from decimal import Decimal
 
 import tractor
-from fuzzywuzzy import process as fuzzy
+from rapidfuzz import process as fuzzy
 
 from piker._cacheables import (
     async_lifo_cache,

@@ -29,7 +29,7 @@ from typing import (
     TYPE_CHECKING,
 )
 
-from fuzzywuzzy import process as fuzzy
+from rapidfuzz import process as fuzzy
 import ib_insync as ibis
 import tractor
 import trio
