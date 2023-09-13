@@ -454,8 +454,18 @@ def mkt_info(
 
 @cli.command()
 @click.argument('pattern', required=True)
+# TODO: move this to top level click/typer context for all subs
+@click.option(
+    '--pdb',
+    is_flag=True,
+    help='Enable tractor debug mode',
+)
 @click.pass_obj
-def search(config, pattern):
+def search(
+    config: dict,
+    pattern: str,
+    pdb: bool,
+):
     '''
     Search for symbols from broker backend(s).
 
@@ -468,6 +478,7 @@ def search(config, pattern):
 
         async with maybe_open_pikerd(
             loglevel=config['loglevel'],
+            debug_mode=pdb,
         ):
             return await func()
 
