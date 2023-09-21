@@ -136,19 +136,10 @@ async def open_symbol_search(ctx: tractor.Context) -> None:
         await ctx.started(cache)
 
         async with ctx.open_stream() as stream:
-
             async for pattern in stream:
-
-                matches = fuzzy.extractBests(
-                    pattern,
-                    client._pairs,
-                    score_cutoff=50,
+                await stream.send(
+                    await client.search_symbols(pattern)
                 )
-                # repack in dict form
-                await stream.send({
-                    pair[0].altname: pair[0]
-                    for pair in matches
-                })
 
 
 @async_lifo_cache()

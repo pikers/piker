@@ -38,7 +38,10 @@ import base64
 import trio
 
 from piker import config
-from piker.data import def_iohlcv_fields
+from piker.data import (
+    def_iohlcv_fields,
+    match_from_pairs,
+)
 from piker.accounting._mktinfo import (
     Asset,
     digits_to_dec,
@@ -548,13 +551,17 @@ class Client:
             await self.get_mkt_pairs()
             assert self._pairs, '`Client.get_mkt_pairs()` was never called!?'
 
-        matches = fuzzy.extractBests(
-            pattern,
-            self._pairs,
+        matches: dict[str, Pair] = match_from_pairs(
+            pairs=self._pairs,
+            query=pattern.upper(),
             score_cutoff=50,
         )
-        # repack in dict form
-        return {item[0].altname: item[0] for item in matches}
+
+        # repack in .altname-keyed output table
+        return {
+            pair.altname: pair
+            for pair in matches.values()
+        }
 
     async def bars(
         self,
