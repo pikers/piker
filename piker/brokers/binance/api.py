@@ -56,7 +56,10 @@ from piker.accounting import (
     digits_to_dec,
 )
 from piker.types import Struct
-from piker.data import def_iohlcv_fields
+from piker.data import (
+    def_iohlcv_fields,
+    match_from_pairs,
+)
 from piker.brokers import (
     resproc,
     SymbolNotFound,
@@ -602,22 +605,11 @@ class Client:
         # `open_symbol_search()`?
         keys: list[str] = list(fq_pairs)
 
-        matches: list[tuple[
-            Sequence[Hashable],  # matching input key
-            Any,  # scores
-            Any,
-        ]] = fuzzy.extract(
-            query=pattern.upper(),  # since all keys are uppercase
-            choices=keys,
+        return match_from_pairs(
+            pairs=fq_pairs,
+            query=pattern.upper(),
             score_cutoff=50,
         )
-        # repack in dict form
-        matched_pairs: dict[str, Pair] = {}
-        for item in matches:
-            pair_key: str = item[0]
-            matched_pairs[pair_key] = self._pairs[pair_key]
-
-        return matched_pairs
 
     async def bars(
         self,
