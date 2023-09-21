@@ -165,6 +165,7 @@ _exch_skip_list = {
     'MEXI',  # mexican stocks
 
     # no idea
+    'NSE',
     'VALUE',
     'FUNDSERV',
     'SWB2',
@@ -269,7 +270,7 @@ async def open_symbol_search(ctx: tractor.Context) -> None:
 
                     stock_results.extend(results)
 
-                for i in range(10):
+                for _ in range(10):
                     with trio.move_on_after(3) as cs:
                         async with trio.open_nursery() as sn:
                             sn.start_soon(
@@ -292,7 +293,7 @@ async def open_symbol_search(ctx: tractor.Context) -> None:
                         break
 
                     # # match against our ad-hoc set immediately
-                    # adhoc_matches = fuzzy.extractBests(
+                    # adhoc_matches = fuzzy.extract(
                     #     pattern,
                     #     list(_adhoc_futes_set),
                     #     score_cutoff=90,
@@ -305,7 +306,7 @@ async def open_symbol_search(ctx: tractor.Context) -> None:
                     #     adhoc_matches}
 
                 log.debug(f'fuzzy matching stocks {stock_results}')
-                stock_matches = fuzzy.extractBests(
+                stock_matches = fuzzy.extract(
                     pattern,
                     stock_results,
                     score_cutoff=50,
@@ -423,9 +424,9 @@ def con2fqme(
         except KeyError:
             pass
 
-    suffix = con.primaryExchange or con.exchange
-    symbol = con.symbol
-    expiry = con.lastTradeDateOrContractMonth or ''
+    suffix: str = con.primaryExchange or con.exchange
+    symbol: str = con.symbol
+    expiry: str = con.lastTradeDateOrContractMonth or ''
 
     match con:
         case ibis.Option():

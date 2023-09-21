@@ -416,19 +416,25 @@ class Client:
 
         futs: list[asyncio.Future] = []
         for con in contracts:
-            if con.primaryExchange not in _exch_skip_list:
+            exch: str = con.primaryExchange or con.exchange
+            if (
+                exch
+                and exch not in _exch_skip_list
+            ):
                 futs.append(self.ib.reqContractDetailsAsync(con))
 
         # batch request all details
         try:
             results: list[ContractDetails] = await asyncio.gather(*futs)
         except RequestError as err:
-            msg = err.message
+            msg: str = err.message
             if (
                 'No security definition' in msg
             ):
                 log.warning(f'{msg}: {contracts}')
                 return {}
+
+            raise
 
         # one set per future result
         details: dict[str, ContractDetails] = {}
@@ -1356,8 +1362,7 @@ async def open_aio_client_method_relay(
     # relay all method requests to ``asyncio``-side client and deliver
     # back results
     while not to_trio._closed:
-        msg = await from_trio.get()
-
+        msg: tuple[str, dict] | dict | None = await from_trio.get()
         match msg:
             case None:  # termination sentinel
                 print('asyncio PROXY-RELAY SHUTDOWN')
