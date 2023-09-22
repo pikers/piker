@@ -29,7 +29,6 @@ import time
 
 import pendulum
 import asks
-from rapidfuzz import process as fuzzy
 import numpy as np
 import urllib.parse
 import hashlib
