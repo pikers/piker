@@ -43,8 +43,10 @@ from ._symcache import (
     SymbologyCache,
     open_symcache,
     get_symcache,
+    match_from_pairs,
 )
 from ._sampling import open_sample_stream
+from ..types import Struct
 
 
 __all__: list[str] = [
@@ -62,6 +64,7 @@ __all__: list[str] = [
     'open_symcache',
     'open_sample_stream',
     'get_symcache',
+    'Struct',
     'SymbologyCache',
     'types',
 ]

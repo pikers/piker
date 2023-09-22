@@ -42,7 +42,7 @@ from trio_typing import TaskStatus
 from pendulum import (
     from_timestamp,
 )
-from fuzzywuzzy import process as fuzzy
+from rapidfuzz import process as fuzzy
 import numpy as np
 import tractor
 
@@ -533,14 +533,15 @@ async def open_symbol_search(
 
             pattern: str
             async for pattern in stream:
-                matches = fuzzy.extractBests(
+                # NOTE: pattern fuzzy-matching is done within
+                # the methd impl.
+                pairs: dict[str, Pair] = await client.search_symbols(
                     pattern,
-                    client._pairs,
-                    score_cutoff=50,
                 )
 
-                # repack in dict form
-                await stream.send({
-                    item[0].bs_fqme: item[0]
-                    for item in matches
-                })
+                # repack in fqme-keyed table
+                byfqme: dict[start, Pair] = {}
+                for pair in pairs.values():
+                    byfqme[pair.bs_fqme] = pair
+
+                await stream.send(byfqme)

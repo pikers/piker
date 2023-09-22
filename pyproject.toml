@@ -1,52 +1,142 @@
+# piker: trading gear for hackers
+# Copyright (C) 2018-present (in stewardship of pikers)
+# Tyler Goodlet and the pike pikes
+
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+# ------ - ------
+
 [tool.poetry]
 name = "piker"
 version = "0.1.0.alpha0.dev0"
 description = "trading gear for hackers"
 authors = ["Tyler Goodlet <jgbt@protonmail.com>"]
 license = "AGPLv3"
-readme = "README.md"
+readme = "README.rst"
 
+# TODO: add meta-data from setup.py
+# keywords=[
+#     "async",
+#     "trading",
+#     "finance",
+#     "quant",
+#     "charting",
+# ],
+# classifiers=[
+#     'Development Status :: 3 - Alpha',
+#     'License :: OSI Approved :: ',
+#     'Operating System :: POSIX :: Linux',
+#     "Programming Language :: Python :: Implementation :: CPython",
+#     "Programming Language :: Python :: 3 :: Only",
+#     "Programming Language :: Python :: 3.10",
+#     "Programming Language :: Python :: 3.11",
+#     'Intended Audience :: Financial and Insurance Industry',
+#     'Intended Audience :: Science/Research',
+#     'Intended Audience :: Developers',
+#     'Intended Audience :: Education',
+# ],
+
+# ------ - ------
 
 [tool.poetry.dependencies]
+asks = "^3.0.0"
+async-generator = "^1.10"
+attrs = "^23.1.0"
+bidict = "^0.22.1"
+colorama = "^0.4.6"
+colorlog = "^6.7.0"
+cython = "^3.0.0"
+greenback = "^1.1.1"
+ib-insync = "^0.9.86"
+msgspec = "^0.18.0"
+numba = "^0.57.1"
+numpy = "1.24"
+pendulum = "^2.1.2"
+polars = "^0.18.13"
+pygments = "^2.16.1"
 python = "^3.10"
+rich = "^13.5.2"
+# setuptools = "^68.0.0"
 tomli = "^2.0.1"
 tomli-w = "^1.0.0"
-colorlog = "^6.7.0"
-attrs = "^23.1.0"
-pygments = "^2.16.1"
-colorama = "^0.4.6"
-msgspec = "^0.18.0"
-typer = "^0.9.0"
-rich = "^13.5.2"
 trio = "^0.22.2"
-trio-websocket = "^0.10.3"
 trio-util = "^0.7.0"
-async-generator = "^1.10"
-asks = "^3.0.0"
-ib-insync = "^0.9.86"
-pendulum = "^2.1.2"
-bidict = "^0.22.1"
-cython = "^3.0.0"
-numpy = "1.24"
-numba = "^0.57.1"
-polars = "^0.18.13"
-pyqt5 = "^5.15.9"
+trio-websocket = "^0.10.3"
+typer = "^0.9.0"
+
+
+[tool.poetry.dependencies.asyncvnc]
+git = 'https://github.com/pikers/asyncvnc.git'
+branch = 'main'
+
+[tool.poetry.dependencies.tomlkit]
+git = 'https://github.com/pikers/tomlkit.git'
+branch = 'piker_pin'
+develop = true
+# path = "../tomlkit/"
+
+[tool.poetry.dependencies.tractor]
+git = 'https://github.com/goodboy/tractor.git'
+branch = 'asyncio_debugger_support'
+# branch = 'piker_pin'
+develop = true
+# path = '../tractor/'
+
+# ------ - ------
+
+[tool.poetry.group.uis]
+optional = true
+[tool.poetry.group.uis.dependencies]
+# https://python-poetry.org/docs/managing-dependencies/#dependency-groups
+# TODO: make sure the levenshtein shit compiles on nix..
+# rapidfuzz = {extras = ["speedup"], version = "^0.18.0"}
+rapidfuzz = "^3.2.0"
 qdarkstyle = ">=3.0.2"
-fuzzywuzzy = {extras = ["speedup"], version = "^0.18.0"}
-xonsh = "^0.14.0"
-
-# pinned from git
-tractor = { path = '../tractor/', develop = true }
-# tractor = { git = 'https://github.com/goodboy/tractor.git', branch = 'piker_pin' }
+pyqt5 = "^5.15.9"
 pyqtgraph = { git = 'https://github.com/pikers/pyqtgraph.git' }
-asyncvnc = { git = 'https://github.com/pikers/asyncvnc.git', branch = 'main' }
-tomlkit = { git = 'https://github.com/pikers/tomlkit.git', branch = 'piker_pin' }
+pyqt6 = "^6.5.2"
 
+# ------ - ------
 
-[build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
+[tool.poetry.group.dev]
+optional = true
+[tool.poetry.group.dev.dependencies]
+# testing / CI
+pytest = "^6.0.0"
+elasticsearch = "^8.9.0"
 
+# console ehancements and eventually remote debugging
+# extras/helpers.
+# TODO: add a toolset that makes debugging a `pikerd` service
+# (tree) easy to hack on directly using more or less the local env:
+# - xonsh + xxh
+# - rsyscall + pdbp
+# - actor runtime control console like BEAM/OTP
+xonsh = "^0.14.0"  # XXX: explicit env install for shell use w nix
+prompt-toolkit = "^3.0.39"
+
+# ------ - ------
+
+# TODO: add an `--only daemon` group for running non-ui / pikerd
+# service tree in distributed mode B)
+# https://python-poetry.org/docs/managing-dependencies/#installing-group-dependencies
+# [tool.poetry.group.daemon.dependencies]
 
 [tool.poetry.scripts]
-poetry = "poetry.console.application:main"
+piker = 'piker.cli:cli'
+pikerd = 'piker.cli:pikerd'
+ledger = 'piker.accounting.cli:ledger'

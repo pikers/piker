@@ -195,6 +195,37 @@ class FutesPair(Pair):
         return self.quotePrecision
 
     @property
+    def expiry(self) -> str:
+        symbol: str = self.symbol
+        contype: str = self.contractType
+        match contype:
+            case (
+                'CURRENT_QUARTER'
+                | 'NEXT_QUARTER'  # su madre binance..
+            ):
+                pair, _, expiry = symbol.partition('_')
+                assert pair == self.pair  # sanity
+                return f'{expiry}'
+
+            case 'PERPETUAL':
+                return 'PERP'
+
+            case '':
+                subtype: list[str] = self.underlyingSubType
+                if not subtype:
+                    if self.status == 'PENDING_TRADING':
+                        return 'PENDING'
+
+                match subtype:
+                    case ['DEFI']:
+                        return 'PERP'
+
+        # XXX: yeah no clue then..
+        raise ValueError(
+            f'Bad .expiry token match: {contype} for {symbol}'
+        )
+
+    @property
     def venue(self) -> str:
         symbol: str = self.symbol
         ctype: str = self.contractType
@@ -202,36 +233,46 @@ class FutesPair(Pair):
 
         match ctype:
             case 'PERPETUAL':
-                return f'{margin}M.PERP'
+                return f'{margin}M'
 
-            case 'CURRENT_QUARTER':
+            case (
+                'CURRENT_QUARTER'
+                | 'NEXT_QUARTER'  # su madre binance..
+            ):
                 _, _, expiry = symbol.partition('_')
-                return f'{margin}M.{expiry}'
+                return f'{margin}M'
 
             case '':
                 subtype: list[str] = self.underlyingSubType
                 if not subtype:
                     if self.status == 'PENDING_TRADING':
-                        return f'{margin}M.PENDING'
+                        return f'{margin}M'
 
                 match subtype:
                     case ['DEFI']:
-                        return f'{subtype[0]}.PERP'
+                        return f'{subtype[0]}'
 
         # XXX: yeah no clue then..
-        return 'WTF.PWNED.BBQ'
+        raise ValueError(
+            f'Bad .venue token match: {ctype}'
+        )
 
     @property
     def bs_fqme(self) -> str:
         symbol: str = self.symbol
         ctype: str = self.contractType
         venue: str = self.venue
+        pair: str = self.pair
 
         match ctype:
-            case 'CURRENT_QUARTER':
-                symbol, _, expiry = symbol.partition('_')
+            case (
+                'CURRENT_QUARTER'
+                | 'NEXT_QUARTER'  # su madre binance..
+            ):
+                pair, _, expiry = symbol.partition('_')
+                assert pair == self.pair
 
-        return f'{symbol}.{venue}'
+        return f'{pair}.{venue}.{self.expiry}'
 
     @property
     def bs_src_asset(self) -> str:

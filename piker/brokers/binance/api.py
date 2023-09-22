@@ -31,6 +31,8 @@ from pprint import pformat
 from typing import (
     Any,
     Callable,
+    Hashable,
+    Sequence,
     Type,
 )
 import hmac
@@ -42,7 +44,7 @@ from pendulum import (
     now,
 )
 import asks
-from fuzzywuzzy import process as fuzzy
+from rapidfuzz import process as fuzzy
 import numpy as np
 
 from piker import config
@@ -54,7 +56,10 @@ from piker.accounting import (
     digits_to_dec,
 )
 from piker.types import Struct
-from piker.data import def_iohlcv_fields
+from piker.data import (
+    def_iohlcv_fields,
+    match_from_pairs,
+)
 from piker.brokers import (
     resproc,
     SymbolNotFound,
@@ -549,7 +554,7 @@ class Client:
         if sym:
             return pair_table[sym]
         else:
-            self._pairs
+            return self._pairs
 
     async def get_assets(
         self,
@@ -596,14 +601,15 @@ class Client:
 
         fq_pairs: dict = await self.exch_info()
 
-        matches = fuzzy.extractBests(
-            pattern,
-            fq_pairs,
+        # TODO: cache this list like we were in
+        # `open_symbol_search()`?
+        keys: list[str] = list(fq_pairs)
+
+        return match_from_pairs(
+            pairs=fq_pairs,
+            query=pattern.upper(),
             score_cutoff=50,
         )
-        # repack in dict form
-        return {item[0]['symbol']: item[0]
-                for item in matches}
 
     async def bars(
         self,

@@ -843,7 +843,10 @@ async def stream_quotes(
         # TODO: we should instead spawn a task that waits on a feed to start
         # and let it wait indefinitely..instead of this hard coded stuff.
         with trio.move_on_after(1):
-            first_ticker = await proxy.get_quote(contract=con)
+            first_ticker = await proxy.get_quote(
+                contract=con,
+                raise_on_timeout=True,
+            )
 
         # it might be outside regular trading hours so see if we can at
         # least grab history.

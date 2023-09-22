@@ -34,7 +34,7 @@ from typing import (
 import pendulum
 import trio
 from trio_typing import TaskStatus
-from fuzzywuzzy import process as fuzzy
+from rapidfuzz import process as fuzzy
 import numpy as np
 from tractor.trionics import (
     broadcast_receiver,
@@ -52,8 +52,11 @@ from cryptofeed.defines import (
 )
 from cryptofeed.symbols import Symbol
 
-from piker.data.types import Struct
-from piker.data import def_iohlcv_fields
+from piker.data import (
+    def_iohlcv_fields,
+    match_from_pairs,
+    Struct,
+)
 from piker.data._web_bs import (
     open_jsonrpc_session
 )
@@ -79,7 +82,7 @@ _testnet_ws_url = 'wss://test.deribit.com/ws/api/v2'
 class JSONRPCResult(Struct):
     jsonrpc: str = '2.0'
     id: int
-    result: Optional[dict] = None
+    result: Optional[list[dict]] = None
     error: Optional[dict] = None
     usIn: int
     usOut: int
@@ -289,24 +292,29 @@ class Client:
         currency: str = 'btc',  # BTC, ETH, SOL, USDC
         kind: str = 'option',
         expired: bool = False
-    ) -> dict[str, Any]:
-        """Get symbol info for the exchange.
 
-        """
+    ) -> dict[str, dict]:
+        '''
+        Get symbol infos.
+
+        '''
         if self._pairs:
             return self._pairs
 
         # will retrieve all symbols by default
-        params = {
+        params: dict[str, str] = {
             'currency': currency.upper(),
             'kind': kind,
             'expired': str(expired).lower()
         }
 
-        resp = await self.json_rpc('public/get_instruments', params)
-        results = resp.result
-
-        instruments = {
+        resp: JSONRPCResult = await self.json_rpc(
+            'public/get_instruments',
+            params,
+        )
+        # convert to symbol-keyed table
+        results: list[dict] | None = resp.result
+        instruments: dict[str, dict] = {
             item['instrument_name'].lower(): item
             for item in results
         }
@@ -319,6 +327,7 @@ class Client:
     async def cache_symbols(
         self,
     ) -> dict:
+
         if not self._pairs:
             self._pairs = await self.symbol_info()
 
@@ -329,17 +338,23 @@ class Client:
         pattern: str,
         limit: int = 30,
     ) -> dict[str, Any]:
-        data = await self.symbol_info()
+        '''
+        Fuzzy search symbology set for pairs matching `pattern`.
 
-        matches = fuzzy.extractBests(
-            pattern,
-            data,
+        '''
+        pairs: dict[str, Any] = await self.symbol_info()
+        matches: dict[str, Pair] = match_from_pairs(
+            pairs=pairs,
+            query=pattern.upper(),
             score_cutoff=35,
             limit=limit
         )
-        # repack in dict form
-        return {item[0]['instrument_name'].lower(): item[0]
-                for item in matches}
+
+       # repack in name-keyed table
+        return {
+            pair['instrument_name'].lower(): pair
+            for pair in matches.values()
+        }
 
     async def bars(
         self,

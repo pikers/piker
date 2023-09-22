@@ -41,7 +41,7 @@ from typing import (
 import wsproto
 from uuid import uuid4
 
-from fuzzywuzzy import process as fuzzy
+from rapidfuzz import process as fuzzy
 from trio_typing import TaskStatus
 import asks
 from bidict import bidict
@@ -65,7 +65,10 @@ from piker._cacheables import (
 from piker.log import get_logger
 from piker.data.validate import FeedInit
 from piker.types import Struct
-from piker.data import def_iohlcv_fields
+from piker.data import (
+    def_iohlcv_fields,
+    match_from_pairs,
+)
 from piker.data._web_bs import (
     open_autorecon_ws,
     NoBsWs,
@@ -377,7 +380,7 @@ class Client:
 
         return pairs, fqmes2mktids
 
-    async def cache_pairs(
+    async def get_mkt_pairs(
         self,
         update: bool = False,
 
@@ -405,16 +408,28 @@ class Client:
 
     ) -> dict[str, KucoinMktPair]:
         '''
-        Use fuzzy search to match against all market names.
+        Use fuzzy search engine to match against pairs, deliver
+        matching ones.
 
         '''
-        data = await self.cache_pairs()
+        if not len(self._pairs):
+            await self.get_mkt_pairs()
+            assert self._pairs, '`Client.get_mkt_pairs()` was never called!?'
 
-        matches = fuzzy.extractBests(
-            pattern, data, score_cutoff=35, limit=limit
+
+        matches: dict[str, Pair] = match_from_pairs(
+            pairs=self._pairs,
+            # query=pattern.upper(),
+            query=pattern.upper(),
+            score_cutoff=35,
+            limit=limit,
         )
+
         # repack in dict form
-        return {item[0].name: item[0] for item in matches}
+        return {
+            pair.name: pair
+            for pair in matches.values()
+        }
 
     async def last_trades(self, sym: str) -> list[AccountTrade]:
         trades = await self._request(
@@ -557,7 +572,7 @@ async def get_client() -> AsyncGenerator[Client, None]:
     client = Client()
 
     async with trio.open_nursery() as n:
-        n.start_soon(client.cache_pairs)
+        n.start_soon(client.get_mkt_pairs)
         await client.get_currencies()
 
     yield client
@@ -569,7 +584,7 @@ async def open_symbol_search(
 ) -> None:
     async with open_cached_client('kucoin') as client:
         # load all symbols locally for fast search
-        await client.cache_pairs()
+        await client.get_mkt_pairs()
         await ctx.started()
 
         async with ctx.open_stream() as stream:
@@ -617,7 +632,7 @@ async def get_mkt_info(
         # split off any fqme broker part
         bs_fqme, _, broker = fqme.partition('.')
 
-        pairs: dict[str, KucoinMktPair] = await client.cache_pairs()
+        pairs: dict[str, KucoinMktPair] = await client.get_mkt_pairs()
 
         try:
             # likely search result key which is already in native mkt symbol form

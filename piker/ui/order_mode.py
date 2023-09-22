@@ -1163,7 +1163,10 @@ async def process_trade_msg(
 
             # XXX TODO: have seen order be a dict here!?
             # that should never happen tho?
-            action: str = order.action
+            action: str = (
+                getattr(order, 'action', None)
+                or order['action']
+            )
             details: dict = msg.brokerd_msg
 
             # TODO: state tracking:

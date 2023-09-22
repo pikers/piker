@@ -543,6 +543,11 @@ class Account(Struct):
 
             if not (pos := pps.get(bs_mktid)):
 
+                assert isinstance(
+                    mkt,
+                    MktPair,
+                )
+
                 # if no existing pos, allocate fresh one.
                 pos = pps[bs_mktid] = Position(
                     mkt=mkt,

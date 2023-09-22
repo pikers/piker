@@ -32,8 +32,9 @@ from typing import (
 
 from bidict import bidict
 import pendulum
-from ib_insync.objects import (
+from ib_insync import (
     Contract,
+    Commodity,
     Fill,
     Execution,
     CommissionReport,
@@ -237,6 +238,21 @@ def norm_trade(
                 name=symbol.lower(),
                 atype='option',
                 tx_tick=Decimal('1'),
+
+                # TODO: we should probably always cast to the
+                # `Contract` instance then dict-serialize that for
+                # the `.info` field!
+                # info=asdict(Option()),
+            )
+
+        case 'CMDTY':
+            from .symbols import _adhoc_symbol_map
+            con_kwargs, _ = _adhoc_symbol_map[symbol.upper()]
+            dst = Asset(
+                name=symbol.lower(),
+                atype='commodity',
+                tx_tick=Decimal('1'),
+                info=asdict(Commodity(**con_kwargs)),
             )
 
     # try to build out piker fqme from record.

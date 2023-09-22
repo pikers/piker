@@ -846,6 +846,18 @@ async def emit_pp_update(
 
         # con: Contract = fill.contract
 
+        # provide a backup fqme -> MktPair table in case the
+        # symcache does not (yet) have an entry for the current mkt
+        # txn.
+        backup_table: dict[str, MktPair] = {}
+        for tid, txn in trans.items():
+            fqme: str = txn.fqme
+            if fqme not in ledger.symcache.mktmaps:
+                # bs_mktid: str = txn.bs_mktid
+                backup_table[fqme] = client._cons2mkts[
+                    client._contracts[fqme]
+                ]
+
         acnt.update_from_ledger(
             trans,
 
@@ -855,7 +867,7 @@ async def emit_pp_update(
 
             # TODO: remove this hack by attempting to symcache an
             # incrementally updated table?
-            _mktmap_table=client._contracts
+            _mktmap_table=backup_table,
         )
 
         # re-compute all positions that have changed state.
@@ -1249,7 +1261,10 @@ async def deliver_trade_events(
                 if err['reqid'] == -1:
                     log.error(f'TWS external order error:\n{pformat(err)}')
 
-                flow: ChainMap = flows.get(reqid)
+                flow: dict = dict(
+                    flows.get(reqid)
+                    or {}
+                )
 
                 # TODO: we don't want to relay data feed / lookup errors
                 # so we need some further filtering logic here..
@@ -1260,7 +1275,7 @@ async def deliver_trade_events(
                     reason=reason,
                     broker_details={
                         'name': 'ib',
-                        'flow': dict(flow),
+                        'flow': flow,
                     },
                 )
                 flows.add_msg(reqid, err_msg.to_dict())

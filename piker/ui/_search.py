@@ -15,7 +15,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 """
-qompleterz: embeddable search and complete using trio, Qt and fuzzywuzzy.
+qompleterz: embeddable search and complete using trio, Qt and rapidfuzz.
 
 """
 
@@ -45,7 +45,7 @@ from typing import (
 import time
 # from pprint import pformat
 
-from fuzzywuzzy import process as fuzzy
+from rapidfuzz import process as fuzzy
 import trio
 from trio_typing import TaskStatus
 from PyQt5 import QtCore

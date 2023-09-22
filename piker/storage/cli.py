@@ -77,7 +77,6 @@ def ls(
         async with (
             open_piker_runtime(
                 'tsdb_storage',
-                enable_modules=['piker.service._ahab'],
             ),
         ):
             for i, backend in enumerate(backends):
@@ -121,7 +120,6 @@ def delete(
         async with (
             open_piker_runtime(
                 'tsdb_storage',
-                enable_modules=['piker.service._ahab']
             ),
             open_storage_client(backend) as (_, client),
             trio.open_nursery() as n,
@@ -149,7 +147,6 @@ def anal(
         async with (
             open_piker_runtime(
                 'tsdb_polars_anal',
-                # enable_modules=['piker.service._ahab']
                 debug_mode=True,
             ),
             open_storage_client() as (mod, client),

@@ -88,15 +88,24 @@ async def data_reset_hack(
     api_port: str = str(ib_client.client.port)
     vnc_host: str
     vnc_port: int
-    vnc_host, vnc_port = client.conf['vnc_addrs'].get(
-        api_port,
-        ('localhost', 3003)
-    )
+    vnc_sockaddr: tuple[str] | None = client.conf.get('vnc_addrs')
 
     no_setup_msg:str = (
-        f'No data reset hack test setup for {vnc_host}!\n'
-        'See setup @\n'
+        f'No data reset hack test setup for {vnc_sockaddr}!\n'
+        'See config setup tips @\n'
         'https://github.com/pikers/piker/tree/master/piker/brokers/ib'
+    )
+
+    if not vnc_sockaddr:
+        log.warning(
+            no_setup_msg
+            +
+            f'REQUIRES A `vnc_addrs: array` ENTRY'
+        )
+
+    vnc_host, vnc_port = vnc_sockaddr.get(
+        api_port,
+        ('localhost', 3003)
     )
     global _reset_tech
 

@@ -21,7 +21,7 @@ Symbology defs and search.
 from decimal import Decimal
 
 import tractor
-from fuzzywuzzy import process as fuzzy
+from rapidfuzz import process as fuzzy
 
 from piker._cacheables import (
     async_lifo_cache,
@@ -43,7 +43,7 @@ from piker.accounting._mktinfo import (
 
 # https://www.kraken.com/features/api#get-tradable-pairs
 class Pair(Struct):
-    respname: str  # idiotic bs_mktid equiv i guess?
+    xname: str  # idiotic bs_mktid equiv i guess?
     altname: str  # alternate pair name
     wsname: str  # WebSocket pair name (if available)
     aclass_base: str  # asset class of base component
@@ -94,7 +94,7 @@ class Pair(Struct):
         make up their minds on a better key set XD
 
         '''
-        return self.respname
+        return self.xname
 
     @property
     def price_tick(self) -> Decimal:
@@ -136,19 +136,10 @@ async def open_symbol_search(ctx: tractor.Context) -> None:
         await ctx.started(cache)
 
         async with ctx.open_stream() as stream:
-
             async for pattern in stream:
-
-                matches = fuzzy.extractBests(
-                    pattern,
-                    client._pairs,
-                    score_cutoff=50,
+                await stream.send(
+                    await client.search_symbols(pattern)
                 )
-                # repack in dict form
-                await stream.send({
-                    pair[0].altname: pair[0]
-                    for pair in matches
-                })
 
 
 @async_lifo_cache()

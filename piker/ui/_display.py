@@ -252,7 +252,15 @@ async def increment_history_view(
                 (bf_wut := msg.get('backfilling', False))
             ):
                 viz_name, timeframe = bf_wut
-                if viz_name == name:
+                if (
+                    viz_name == name
+
+                    # TODO: only allow this when the data is IN VIEW!
+                    # also, we probably can do this more efficiently
+                    # / smarter by only redrawing the portion of the
+                    # path necessary?
+                    and False
+                ):
                     log.info(f'Forcing hard redraw -> {name}@{timeframe}')
                     match timeframe:
                         case 60:

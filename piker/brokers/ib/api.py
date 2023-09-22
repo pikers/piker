@@ -416,19 +416,25 @@ class Client:
 
         futs: list[asyncio.Future] = []
         for con in contracts:
-            if con.primaryExchange not in _exch_skip_list:
+            exch: str = con.primaryExchange or con.exchange
+            if (
+                exch
+                and exch not in _exch_skip_list
+            ):
                 futs.append(self.ib.reqContractDetailsAsync(con))
 
         # batch request all details
         try:
             results: list[ContractDetails] = await asyncio.gather(*futs)
         except RequestError as err:
-            msg = err.message
+            msg: str = err.message
             if (
                 'No security definition' in msg
             ):
                 log.warning(f'{msg}: {contracts}')
                 return {}
+
+            raise
 
         # one set per future result
         details: dict[str, ContractDetails] = {}
@@ -663,7 +669,7 @@ class Client:
 
         # commodities
         elif exch == 'CMDTY':  # eg. XAUUSD.CMDTY
-            con_kwargs, bars_kwargs = _adhoc_symbol_map[symbol]
+            con_kwargs, bars_kwargs = _adhoc_symbol_map[symbol.upper()]
             con = Commodity(**con_kwargs)
             con.bars_kwargs = bars_kwargs
 
@@ -727,11 +733,15 @@ class Client:
                 or tract.exchange
                 or exch
             )
-            pattern: str = f'{symbol}.{exch}'
+            pattern: str = f'{symbol}.{exch.lower()}'
             expiry: str = tract.lastTradeDateOrContractMonth
             # add an entry with expiry suffix if available
             if expiry:
                 pattern += f'.{expiry}'
+
+            # since pos update msgs will always have the full fqme
+            # with suffix?
+            pattern += '.ib'
 
             # directly cache the input pattern to the output
             # contract match as well as by the IB-internal conId.
@@ -779,8 +789,10 @@ class Client:
     async def get_quote(
         self,
         contract: Contract,
+        timeout: float = 1,
+        raise_on_timeout: bool = False,
 
-    ) -> Ticker:
+    ) -> Ticker | None:
         '''
         Return a single (snap) quote for symbol.
 
@@ -789,18 +801,25 @@ class Client:
             contract,
             snapshot=True,
         )
-        ready = ticker.updateEvent
+        ready: ticker.TickerUpdateEvent = ticker.updateEvent
 
         # ensure a last price gets filled in before we deliver quote
         warnset: bool = False
         for _ in range(100):
             if isnan(ticker.last):
 
-                done, pending = await asyncio.wait(
-                    [ready],
-                    timeout=0.01,
-                )
-                if ready in done:
+                # wait for a first update(Event)
+                try:
+                    tkr = await asyncio.wait_for(
+                        ready,
+                        timeout=timeout,
+                    )
+                except TimeoutError:
+                    if raise_on_timeout:
+                        raise
+                    return None
+
+                if tkr:
                     break
                 else:
                     if not warnset:
@@ -1343,8 +1362,7 @@ async def open_aio_client_method_relay(
     # relay all method requests to ``asyncio``-side client and deliver
     # back results
     while not to_trio._closed:
-        msg = await from_trio.get()
-
+        msg: tuple[str, dict] | dict | None = await from_trio.get()
         match msg:
             case None:  # termination sentinel
                 print('asyncio PROXY-RELAY SHUTDOWN')
