@@ -472,6 +472,7 @@ def match_from_pairs(
     pairs: dict[str, Struct],
     query: str,
     score_cutoff: int = 50,
+    **extract_kwargs,
 
 ) -> dict[str, Struct]:
     '''
@@ -495,6 +496,7 @@ def match_from_pairs(
         query=query,
         choices=keys,
         score_cutoff=score_cutoff,
+        **extract_kwargs,
     )
 
     # pop and repack pairs in output dict
