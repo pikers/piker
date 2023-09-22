@@ -308,7 +308,7 @@ class SymbologyCache(Struct):
         matches in a `dict` including the `MktPair` values.
 
         '''
-        matches = fuzzy.extractBests(
+        matches = fuzzy.extract(
             pattern,
             getattr(self, table),
             score_cutoff=50,
@@ -466,3 +466,41 @@ def get_symcache(
         pdbp.xpm()
 
     return symcache
+
+
+def match_from_pairs(
+    pairs: dict[str, Struct],
+    query: str,
+    score_cutoff: int = 50,
+
+) -> dict[str, Struct]:
+    '''
+    Fuzzy search over a "pairs table" maintained by most backends
+    as part of their symbology-info caching internals.
+
+    Scan the native symbol key set and return best ranked
+    matches back in a new `dict`.
+
+    '''
+
+    # TODO: somehow cache this list (per call) like we were in
+    # `open_symbol_search()`?
+    keys: list[str] = list(pairs)
+    matches: list[tuple[
+        Sequence[Hashable],  # matching input key
+        Any,  # scores
+        Any,
+    ]] = fuzzy.extract(
+        # NOTE: most backends provide keys uppercased
+        query=query,
+        choices=keys,
+        score_cutoff=score_cutoff,
+    )
+
+    # pop and repack pairs in output dict
+    matched_pairs: dict[str, Pair] = {}
+    for item in matches:
+        pair_key: str = item[0]
+        matched_pairs[pair_key] = pairs[pair_key]
+
+    return matched_pairs
