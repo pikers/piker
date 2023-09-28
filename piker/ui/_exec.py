@@ -51,11 +51,15 @@ from outcome import Error
 
 from ..service import (
     maybe_open_pikerd,
-    get_tractor_runtime_kwargs,
+    get_runtime_vars,
 )
 from ..log import get_logger
 from ._pg_overrides import _do_overrides
 from . import _style
+
+
+if TYPE_CHECKING:
+    from ._chart import GodWidget
 
 
 log = get_logger(__name__)
@@ -173,7 +177,9 @@ def run_qtractor(
     instance.window = window
 
     # override tractor's defaults
-    tractor_kwargs.update(get_tractor_runtime_kwargs())
+    tractor_kwargs.update(
+        get_runtime_vars()
+    )
 
     # define tractor entrypoint
     async def main():
