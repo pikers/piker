@@ -59,7 +59,6 @@ from piker.brokers import get_brokermod
 from piker.service import (
     maybe_spawn_brokerd,
 )
-from piker.ui import _search
 from piker.calc import humanize
 from ._util import (
     log,
@@ -734,6 +733,7 @@ async def install_brokerd_search(
                 except trio.EndOfChannel:
                     return {}
 
+            from piker.ui import _search
             async with _search.register_symbol_search(
 
                 provider_name=brokermod.name,
