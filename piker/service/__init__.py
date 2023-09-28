@@ -39,7 +39,7 @@ from ._actor_runtime import (
     open_piker_runtime,
     maybe_open_pikerd,
     open_pikerd,
-    get_tractor_runtime_kwargs,
+    get_runtime_vars,
 )
 from ..brokers._daemon import (
     spawn_brokerd,
@@ -58,5 +58,5 @@ __all__ = [
     'open_piker_runtime',
     'maybe_open_pikerd',
     'open_pikerd',
-    'get_tractor_runtime_kwargs',
+    'get_runtime_vars',
 ]

@@ -45,7 +45,7 @@ from ._registry import (  # noqa
 )
 
 
-def get_tractor_runtime_kwargs() -> dict[str, Any]:
+def get_runtime_vars() -> dict[str, Any]:
     '''
     Deliver ``tractor`` related runtime variables in a `dict`.
 
@@ -56,14 +56,14 @@ def get_tractor_runtime_kwargs() -> dict[str, Any]:
 @acm
 async def open_piker_runtime(
     name: str,
+    registry_addrs: list[tuple[str, int]],
+
     enable_modules: list[str] = [],
     loglevel: Optional[str] = None,
 
     # XXX NOTE XXX: you should pretty much never want debug mode
     # for data daemons when running in production.
     debug_mode: bool = False,
-
-    registry_addr: None | tuple[str, int] = None,
 
     # TODO: once we have `rsyscall` support we will read a config
     # and spawn the service tree distributed per that.
@@ -74,7 +74,7 @@ async def open_piker_runtime(
 
 ) -> tuple[
     tractor.Actor,
-    tuple[str, int],
+    list[tuple[str, int]],
 ]:
     '''
     Start a piker actor who's runtime will automatically sync with
@@ -90,15 +90,19 @@ async def open_piker_runtime(
 
     except tractor._exceptions.NoRuntime:
         tractor._state._runtime_vars[
-            'piker_vars'] = tractor_runtime_overrides
+            'piker_vars'
+        ] = tractor_runtime_overrides
 
-        registry_addr = registry_addr or _default_reg_addr
+        registry_addrs = (
+            registry_addrs
+            or [_default_reg_addr]
+        )
 
         async with (
             tractor.open_root_actor(
 
                 # passed through to ``open_root_actor``
-                arbiter_addr=registry_addr,
+                registry_addrs=registry_addrs,
                 name=name,
                 loglevel=loglevel,
                 debug_mode=debug_mode,
@@ -112,22 +116,27 @@ async def open_piker_runtime(
                 **tractor_kwargs,
             ) as _,
 
-            open_registry(registry_addr, ensure_exists=False) as addr,
+            open_registry(
+                registry_addrs,
+                ensure_exists=False,
+            ) as addrs,
         ):
             yield (
                 tractor.current_actor(),
-                addr,
+                addrs,
             )
     else:
-        async with open_registry(registry_addr) as addr:
+        async with open_registry(
+            registry_addrs
+        ) as addrs:
             yield (
                 actor,
-                addr,
+                addrs,
             )
 
 
-_root_dname = 'pikerd'
-_root_modules = [
+_root_dname: str = 'pikerd'
+_root_modules: list[str] = [
     __name__,
     'piker.service._daemon',
     'piker.brokers._daemon',
@@ -141,13 +150,13 @@ _root_modules = [
 
 @acm
 async def open_pikerd(
+    registry_addrs: list[tuple[str, int]],
 
     loglevel: str | None = None,
 
     # XXX: you should pretty much never want debug mode
     # for data daemons when running in production.
     debug_mode: bool = False,
-    registry_addr: None | tuple[str, int] = None,
 
     **kwargs,
 
@@ -169,19 +178,23 @@ async def open_pikerd(
             enable_modules=_root_modules,
             loglevel=loglevel,
             debug_mode=debug_mode,
-            registry_addr=registry_addr,
+            registry_addrs=registry_addrs,
 
             **kwargs,
 
-        ) as (root_actor, reg_addr),
+        ) as (
+            root_actor,
+            reg_addrs,
+        ),
         tractor.open_nursery() as actor_nursery,
         trio.open_nursery() as service_nursery,
     ):
-        if root_actor.accept_addr != reg_addr:
-            raise RuntimeError(
-                f'`pikerd` failed to bind on {reg_addr}!\n'
-                'Maybe you have another daemon already running?'
-            )
+        for addr in reg_addrs:
+            if addr not in root_actor.accept_addrs:
+                raise RuntimeError(
+                    f'`pikerd` failed to bind on {addr}!\n'
+                    'Maybe you have another daemon already running?'
+                )
 
         # assign globally for future daemon/task creation
         Services.actor_n = actor_nursery
@@ -225,9 +238,9 @@ async def open_pikerd(
 
 @acm
 async def maybe_open_pikerd(
-    loglevel: Optional[str] = None,
-    registry_addr: None | tuple = None,
+    registry_addrs: list[tuple[str, int]] | None = None,
 
+    loglevel: str | None = None,
     **kwargs,
 
 ) -> tractor._portal.Portal | ClassVar[Services]:
@@ -253,17 +266,20 @@ async def maybe_open_pikerd(
     #     async with open_portal(chan) as arb_portal:
     #         yield arb_portal
 
+    registry_addrs = registry_addrs or [_default_reg_addr]
+
     async with (
         open_piker_runtime(
             name=query_name,
-            registry_addr=registry_addr,
+            registry_addrs=registry_addrs,
             loglevel=loglevel,
             **kwargs,
         ) as _,
 
         tractor.find_actor(
             _root_dname,
-            arbiter_sockaddr=registry_addr,
+            registry_addrs=registry_addrs,
+            only_first=True,
         ) as portal
     ):
         # connect to any existing daemon presuming
@@ -278,7 +294,7 @@ async def maybe_open_pikerd(
     # configured address
     async with open_pikerd(
         loglevel=loglevel,
-        registry_addr=registry_addr,
+        registry_addrs=registry_addrs,
 
         # passthrough to ``tractor`` init
         **kwargs,

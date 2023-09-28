@@ -19,7 +19,7 @@ CLI commons.
 
 '''
 import os
-from contextlib import AsyncExitStack
+# from contextlib import AsyncExitStack
 from types import ModuleType
 
 import click
@@ -43,88 +43,159 @@ log = get_logger('piker.cli')
 
 
 @click.command()
-@click.option('--loglevel', '-l', default='warning', help='Logging level')
-@click.option('--tl', is_flag=True, help='Enable tractor logging')
-@click.option('--pdb', is_flag=True, help='Enable tractor debug mode')
-@click.option('--host', '-h', default=None, help='Host addr to bind')
-@click.option('--port', '-p', default=None, help='Port number to bind')
 @click.option(
-    '--tsdb',
-    is_flag=True,
-    help='Enable local ``marketstore`` instance'
+    '--loglevel',
+    '-l',
+    default='warning',
+    help='Logging level',
 )
 @click.option(
-    '--es',
+    '--tl',
     is_flag=True,
-    help='Enable local ``elasticsearch`` instance'
+    help='Enable tractor-runtime logs',
 )
+@click.option(
+    '--pdb',
+    is_flag=True,
+    help='Enable tractor debug mode',
+)
+@click.option(
+    '--maddr',
+    '-m',
+    default=None,
+    help='Multiaddrs to bind or contact',
+)
+# @click.option(
+#     '--tsdb',
+#     is_flag=True,
+#     help='Enable local ``marketstore`` instance'
+# )
+# @click.option(
+#     '--es',
+#     is_flag=True,
+#     help='Enable local ``elasticsearch`` instance'
+# )
 def pikerd(
+    maddr: str | None,
     loglevel: str,
-    host: str,
-    port: int,
     tl: bool,
     pdb: bool,
-    tsdb: bool,
-    es: bool,
+    # tsdb: bool,
+    # es: bool,
 ):
     '''
     Spawn the piker broker-daemon.
 
     '''
-    log = get_console_log(loglevel, name='cli')
+    from cornerboi._debug import open_crash_handler
+    with open_crash_handler():
+        log = get_console_log(loglevel, name='cli')
 
-    if pdb:
-        log.warning((
-            "\n"
-            "!!! YOU HAVE ENABLED DAEMON DEBUG MODE !!!\n"
-            "When a `piker` daemon crashes it will block the "
-            "task-thread until resumed from console!\n"
-            "\n"
-        ))
+        if pdb:
+            log.warning((
+                "\n"
+                "!!! YOU HAVE ENABLED DAEMON DEBUG MODE !!!\n"
+                "When a `piker` daemon crashes it will block the "
+                "task-thread until resumed from console!\n"
+                "\n"
+            ))
 
-    reg_addr: None | tuple[str, int] = None
-    if host or port:
-        reg_addr = (
-            host or _default_registry_host,
-            int(port) or _default_registry_port,
+        # service-actor registry endpoint socket-address
+        regaddrs: list[tuple[str, int]] | None = None
+
+        conf, _ = config.load(
+            conf_name='conf',
         )
+        network: dict = conf.get('network')
+        if network is None:
+            regaddrs = [(
+                _default_registry_host,
+                _default_registry_port,
+            )]
 
-    from .. import service
+        from .. import service
+        from ..service._multiaddr import parse_addr
 
-    async def main():
-        service_mngr: service.Services
+        # transport-oriented endpoint multi-addresses
+        eps: dict[
+            str,  # service name, eg. `pikerd`, `emsd`..
 
-        async with (
-            service.open_pikerd(
-                loglevel=loglevel,
-                debug_mode=pdb,
-                registry_addr=reg_addr,
+            # libp2p style multi-addresses parsed into prot layers
+            list[dict[str, str | int]]
+        ] = {}
 
-            ) as service_mngr,  # normally delivers a ``Services`` handle
-
-            AsyncExitStack() as stack,
+        if (
+            not maddr
+            and network
         ):
-            if tsdb:
-                dname, conf = await stack.enter_async_context(
-                    service.marketstore.start_ahab_daemon(
-                        service_mngr,
-                        loglevel=loglevel,
-                    )
-                )
-                log.info(f'TSDB `{dname}` up with conf:\n{conf}')
+            # load network section and (attempt to) connect all endpoints
+            # which are reachable B)
+            for key, maddrs in network.items():
+                match key:
 
-            if es:
-                dname, conf = await stack.enter_async_context(
-                    service.elastic.start_ahab_daemon(
-                        service_mngr,
-                        loglevel=loglevel,
-                    )
-                )
-                log.info(f'DB `{dname}` up with conf:\n{conf}')
+                    # TODO: resolve table across multiple discov
+                    # prots Bo
+                    case 'resolv':
+                        pass
 
-            await trio.sleep_forever()
+                    case 'pikerd':
+                        dname: str = key
+                        for maddr in maddrs:
+                            layers: dict = parse_addr(maddr)
+                            eps.setdefault(
+                                dname,
+                                [],
+                            ).append(layers)
 
-    trio.run(main)
+        else:
+            # presume user is manually specifying the root actor ep.
+            eps['pikerd'] = [parse_addr(maddr)]
+
+        regaddrs: list[tuple[str, int]] = []
+        for layers in eps['pikerd']:
+            regaddrs.append((
+                layers['ipv4']['addr'],
+                layers['tcp']['port'],
+            ))
+
+        async def main():
+            service_mngr: service.Services
+
+            async with (
+                service.open_pikerd(
+                    registry_addrs=regaddrs,
+                    loglevel=loglevel,
+                    debug_mode=pdb,
+
+                ) as service_mngr,  # normally delivers a ``Services`` handle
+
+                # AsyncExitStack() as stack,
+            ):
+                # TODO: spawn all other sub-actor daemons according to
+                # multiaddress endpoint spec defined by user config
+                assert service_mngr
+
+                # if tsdb:
+                #     dname, conf = await stack.enter_async_context(
+                #         service.marketstore.start_ahab_daemon(
+                #             service_mngr,
+                #             loglevel=loglevel,
+                #         )
+                #     )
+                #     log.info(f'TSDB `{dname}` up with conf:\n{conf}')
+
+                # if es:
+                #     dname, conf = await stack.enter_async_context(
+                #         service.elastic.start_ahab_daemon(
+                #             service_mngr,
+                #             loglevel=loglevel,
+                #         )
+                #     )
+                #     log.info(f'DB `{dname}` up with conf:\n{conf}')
+
+                await trio.sleep_forever()
+
+        trio.run(main)
 
 
 @click.group(context_settings=config._context_defaults)
@@ -137,8 +208,8 @@ def pikerd(
 @click.option('--loglevel', '-l', default='warning', help='Logging level')
 @click.option('--tl', is_flag=True, help='Enable tractor logging')
 @click.option('--configdir', '-c', help='Configuration directory')
-@click.option('--host', '-h', default=None, help='Host addr to bind')
-@click.option('--port', '-p', default=None, help='Port number to bind')
+@click.option('--maddr', '-m', default=None, help='Multiaddr to bind')
+@click.option('--raddr', '-r', default=None, help='Registrar addr to contact')
 @click.pass_context
 def cli(
     ctx: click.Context,
@@ -146,8 +217,10 @@ def cli(
     loglevel: str,
     tl: bool,
     configdir: str,
-    host: str,
-    port: int,
+
+    # TODO: make these list[str] with multiple -m maddr0 -m maddr1
+    maddr: str,
+    raddr: str,
 
 ) -> None:
     if configdir is not None:
@@ -168,12 +241,10 @@ def cli(
     }
     assert brokermods
 
-    reg_addr: None | tuple[str, int] = None
-    if host or port:
-        reg_addr = (
-            host or _default_registry_host,
-            int(port) or _default_registry_port,
-        )
+    regaddr: tuple[str, int] = (
+        _default_registry_host,
+        _default_registry_port,
+    )
 
     ctx.obj.update({
         'brokers': brokers,
@@ -183,7 +254,7 @@ def cli(
         'log': get_console_log(loglevel),
         'confdir': config._config_dir,
         'wl_path': config._watchlists_data_path,
-        'registry_addr': reg_addr,
+        'registry_addr': regaddr,
     })
 
     # allow enabling same loglevel in ``tractor`` machinery
@@ -230,7 +301,7 @@ def services(config, tl, ports):
 
 
 def _load_clis() -> None:
-    from ..service import elastic  # noqa
+    # from ..service import elastic  # noqa
     from ..brokers import cli  # noqa
     from ..ui import cli  # noqa
     from ..watchlists import cli  # noqa

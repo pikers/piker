@@ -70,7 +70,10 @@ async def maybe_spawn_daemon(
     lock = Services.locks[service_name]
     await lock.acquire()
 
-    async with find_service(service_name) as portal:
+    async with find_service(
+        service_name,
+        registry_addrs=[('127.0.0.1', 6116)],
+    ) as portal:
         if portal is not None:
             lock.release()
             yield portal

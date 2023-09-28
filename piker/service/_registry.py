@@ -46,7 +46,9 @@ _registry: Registry | None = None
 
 
 class Registry:
-    addr: None | tuple[str, int] = None
+    # TODO: should this be a set or should we complain
+    # on duplicates?
+    addrs: list[tuple[str, int]] = []
 
     # TODO: table of uids to sockaddrs
     peers: dict[
@@ -60,69 +62,90 @@ _tractor_kwargs: dict[str, Any] = {}
 
 @acm
 async def open_registry(
-    addr: None | tuple[str, int] = None,
+    addrs: list[tuple[str, int]],
     ensure_exists: bool = True,
 
-) -> tuple[str, int]:
+) -> list[tuple[str, int]]:
 
     global _tractor_kwargs
     actor = tractor.current_actor()
     uid = actor.uid
+    preset_reg_addrs: list[tuple[str, int]] = Registry.addrs
     if (
-        Registry.addr is not None
-        and addr
+        preset_reg_addrs
+        and addrs
     ):
-        raise RuntimeError(
-            f'`{uid}` registry addr already bound @ {_registry.sockaddr}'
-        )
+        if preset_reg_addrs != addrs:
+            raise RuntimeError(
+                f'`{uid}` has non-matching registrar addresses?\n'
+                f'request: {addrs}\n'
+                f'already set: {preset_reg_addrs}'
+            )
 
     was_set: bool = False
 
     if (
         not tractor.is_root_process()
-        and Registry.addr is None
+        and not Registry.addrs
     ):
-        Registry.addr = actor._arb_addr
+        Registry.addrs.extend(actor._reg_addrs)
 
     if (
         ensure_exists
-        and Registry.addr is None
+        and not Registry.addrs
     ):
         raise RuntimeError(
-            f"`{uid}` registry should already exist bug doesn't?"
+            f"`{uid}` registry should already exist but doesn't?"
         )
 
     if (
-        Registry.addr is None
+        not Registry.addrs
     ):
         was_set = True
-        Registry.addr = addr or _default_reg_addr
+        Registry.addrs = addrs or [_default_reg_addr]
 
-    _tractor_kwargs['arbiter_addr'] = Registry.addr
+    # NOTE: only spot this seems currently used is inside
+    # `.ui._exec` which is the (eventual qtloops) bootstrapping
+    # with guest mode.
+    _tractor_kwargs['registry_addrs'] = Registry.addrs
 
     try:
-        yield Registry.addr
+        yield Registry.addrs
     finally:
         # XXX: always clear the global addr if we set it so that the
         # next (set of) calls will apply whatever new one is passed
         # in.
         if was_set:
-            Registry.addr = None
+            Registry.addrs = None
 
 
 @acm
 async def find_service(
     service_name: str,
+    registry_addrs: list[tuple[str, int]],
+
+    first_only: bool = True,
+
 ) -> tractor.Portal | None:
 
-    async with open_registry() as reg_addr:
+    reg_addrs: list[tuple[str, int]]
+    async with open_registry(
+        addrs=registry_addrs,
+    ) as reg_addrs:
         log.info(f'Scanning for service `{service_name}`')
         # attach to existing daemon by name if possible
         async with tractor.find_actor(
             service_name,
-            arbiter_sockaddr=reg_addr,
-        ) as maybe_portal:
-            yield maybe_portal
+            registry_addrs=reg_addrs,
+        ) as maybe_portals:
+            if not maybe_portals:
+                yield None
+                return
+
+            if first_only:
+                yield maybe_portals[0]
+            else:
+                yield maybe_portals[0]
 
 
 async def check_for_service(
