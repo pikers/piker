@@ -169,12 +169,15 @@ async def open_storage_client(
     tsdb_host: str = 'localhost'
 
     # load root config and any tsdb user defined settings
-    conf, path = config.load('conf', touch_if_dne=True)
+    conf, path = config.load(
+        conf_name='conf',
+        touch_if_dne=True,
+    )
 
     # TODO: maybe not under a "network" section.. since
-    # no more chitty mkts..
+    # no more chitty `marketstore`..
     tsdbconf: dict = {}
-    service_section = conf.get('service')
+    service_section = conf.get('network')
     if (
         not backend
         and service_section
