@@ -246,7 +246,8 @@ def repodir() -> Path:
 
 
 def load(
-    conf_name: str = 'brokers',  # appended with .toml suffix
+    # NOTE: always appended with .toml suffix
+    conf_name: str = 'conf',
     path: Path | None = None,
 
     decode: Callable[
