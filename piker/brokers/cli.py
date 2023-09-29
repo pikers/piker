@@ -482,20 +482,22 @@ def search(
         ):
             return await func()
 
-    quotes = trio.run(
-        main,
-        partial(
-            core.symbol_search,
-            brokermods,
-            pattern,
-        ),
-    )
+    from cornerboi._debug import open_crash_handler
+    with open_crash_handler():
+        quotes = trio.run(
+            main,
+            partial(
+                core.symbol_search,
+                brokermods,
+                pattern,
+            ),
+        )
 
-    if not quotes:
-        log.error(f"No matches could be found for {pattern}?")
-        return
+        if not quotes:
+            log.error(f"No matches could be found for {pattern}?")
+            return
 
-    click.echo(colorize_json(quotes))
+        click.echo(colorize_json(quotes))
 
 
 @cli.command()

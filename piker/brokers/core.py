@@ -145,7 +145,11 @@ async def symbol_search(
 
         async with maybe_spawn_brokerd(
             mod.name,
-            infect_asyncio=getattr(mod, '_infect_asyncio', False),
+            infect_asyncio=getattr(
+                mod,
+                '_infect_asyncio',
+                False,
+            ),
         ) as portal:
 
             results.append((
