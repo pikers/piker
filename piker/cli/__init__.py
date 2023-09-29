@@ -114,7 +114,7 @@ def pikerd(
             )]
 
         from .. import service
-        from tractor._multiaddr import parse_addr
+        from tractor._multiaddr import parse_maddr
 
         # transport-oriented endpoint multi-addresses
         eps: dict[
@@ -141,7 +141,7 @@ def pikerd(
                     case 'pikerd':
                         dname: str = key
                         for maddr in maddrs:
-                            layers: dict = parse_addr(maddr)
+                            layers: dict = parse_maddr(maddr)
                             eps.setdefault(
                                 dname,
                                 [],
@@ -149,7 +149,7 @@ def pikerd(
 
         else:
             # presume user is manually specifying the root actor ep.
-            eps['pikerd'] = [parse_addr(maddr)]
+            eps['pikerd'] = [parse_maddr(maddr)]
 
         regaddrs: list[tuple[str, int]] = []
         for layers in eps['pikerd']:
