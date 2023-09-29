@@ -114,7 +114,7 @@ def pikerd(
             )]
 
         from .. import service
-        from ..service._multiaddr import parse_addr
+        from tractor._multiaddr import parse_addr
 
         # transport-oriented endpoint multi-addresses
         eps: dict[
