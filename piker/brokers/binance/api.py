@@ -83,7 +83,10 @@ def get_config() -> dict:
 
     conf: dict
     path: Path
-    conf, path = config.load(touch_if_dne=True)
+    conf, path = config.load(
+        conf_name='brokers',
+        touch_if_dne=True,
+    )
 
     section = conf.get('binance')
 
