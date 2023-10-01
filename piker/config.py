@@ -358,7 +358,9 @@ def load_accounts(
 
 ) -> bidict[str, str | None]:
 
-    conf, path = load()
+    conf, path = load(
+        conf_name='brokers',
+    )
     accounts = bidict()
     for provider_name, section in conf.items():
         accounts_section = section.get('accounts')
