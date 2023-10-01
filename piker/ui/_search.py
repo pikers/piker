@@ -43,7 +43,7 @@ from typing import (
     Iterator,
 )
 import time
-# from pprint import pformat
+from pprint import pformat
 
 from rapidfuzz import process as fuzzy
 import trio
@@ -1139,21 +1139,25 @@ async def search_simple_dict(
 
 ) -> dict[str, Any]:
 
-    tokens = []
+    tokens: list[str] = []
     for key in source:
-        if not isinstance(key, str):
-            tokens.extend(key)
-        else:
-            tokens.append(key)
+        match key:
+            case str():
+                tokens.append(key)
+            case []:
+                tokens.extend(key)
 
     # search routine can be specified as a function such
     # as in the case of the current app's local symbol cache
-    matches = fuzzy.extractBests(
+    matches = fuzzy.extract(
         text,
         tokens,
         score_cutoff=90,
     )
-
+    log.info(
+        'cache search results:\n'
+        f'{pformat(matches)}'
+    )
     return [item[0] for item in matches]
 
 
