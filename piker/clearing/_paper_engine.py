@@ -39,6 +39,7 @@ import trio
 import tractor
 
 from piker.brokers import get_brokermod
+from piker.service import find_service
 from piker.accounting import (
     Account,
     MktPair,
@@ -754,7 +755,7 @@ async def open_paperboi(
     service_name = f'paperboi.{broker}'
 
     async with (
-        tractor.find_actor(service_name) as portal,
+        find_service(service_name) as portal,
         tractor.open_nursery() as an,
     ):
         # NOTE: only spawn if no paperboi already is up since we likely
@@ -777,8 +778,10 @@ async def open_paperboi(
         ) as (ctx, first):
             yield ctx, first
 
-            # tear down connection and any spawned actor on exit
+            # ALWAYS tear down connection AND any newly spawned
+            # paperboi actor on exit!
             await ctx.cancel()
+
             if we_spawned:
                 await portal.cancel_actor()
 
