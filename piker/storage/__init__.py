@@ -177,7 +177,7 @@ async def open_storage_client(
     # TODO: maybe not under a "network" section.. since
     # no more chitty `marketstore`..
     tsdbconf: dict = {}
-    service_section = conf.get('network')
+    service_section = conf.get('service')
     if (
         not backend
         and service_section
@@ -186,8 +186,11 @@ async def open_storage_client(
 
         # lookup backend tsdb module by name and load any user service
         # settings for connecting to the tsdb service.
-        backend: str = tsdbconf.pop('backend')
-        tsdb_host: str = tsdbconf['host']
+        backend: str = tsdbconf.pop(
+            'name',
+            def_backend,
+        )
+        tsdb_host: str = tsdbconf.get('maddrs', [])
 
     if backend is None:
         backend: str = def_backend
