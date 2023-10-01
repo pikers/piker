@@ -1000,7 +1000,9 @@ _scan_ignore: set[tuple[str, int]] = set()
 
 def get_config() -> dict[str, Any]:
 
-    conf, path = config.load('brokers')
+    conf, path = config.load(
+        conf_name='brokers',
+    )
     section = conf.get('ib')
 
     accounts = section.get('accounts')

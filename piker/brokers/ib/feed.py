@@ -25,6 +25,7 @@ from contextlib import (
 from dataclasses import asdict
 from datetime import datetime
 from functools import partial
+from pprint import pformat
 from math import isnan
 import time
 from typing import (
@@ -836,9 +837,12 @@ async def stream_quotes(
 
         con: Contract = details.contract
         first_ticker: Ticker = await proxy.get_quote(contract=con)
-        first_quote: dict = normalize(first_ticker)
-
-        log.warning(f'FIRST QUOTE: {first_quote}')
+        if first_ticker:
+            first_quote: dict = normalize(first_ticker)
+            log.info(
+                'Rxed init quote:\n'
+                f'{pformat(first_quote)}'
+            )
 
         # TODO: we should instead spawn a task that waits on a feed to start
         # and let it wait indefinitely..instead of this hard coded stuff.
@@ -858,7 +862,10 @@ async def stream_quotes(
                 'crypto',
             }
         ):
-            task_status.started((init_msgs, first_quote))
+            task_status.started((
+                init_msgs,
+                first_quote,
+            ))
 
             # it's not really live but this will unblock
             # the brokerd feed task to tell the ui to update?
@@ -889,7 +896,10 @@ async def stream_quotes(
                     # only on first entry at feed boot up
                     if startup:
                         startup = False
-                        task_status.started((init_msgs, first_quote))
+                        task_status.started((
+                            init_msgs,
+                            first_quote,
+                        ))
 
                     # start a stream restarter task which monitors the
                     # data feed event.
