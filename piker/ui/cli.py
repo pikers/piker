@@ -146,7 +146,8 @@ def chart(
     pdb: bool,
 ):
     '''
-    Start a real-time chartng UI
+    Run chart UI app, spawning service daemons dynamically as
+    needed if not discovered via [network] config.
 
     '''
     # eg. ``--profile 3`` reports profiling for anything slower then 3 ms.
@@ -181,6 +182,6 @@ def chart(
             'debug_mode': pdb,
             'loglevel': tractorloglevel,
             'name': 'chart',
-            'registry_addr': config.get('registry_addr'),
+            'registry_addrs': config.get('registry_addrs'),
         },
     )

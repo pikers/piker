@@ -87,8 +87,8 @@ def pikerd(
     Spawn the piker broker-daemon.
 
     '''
-    from cornerboi._debug import open_crash_handler
-    with open_crash_handler():
+    from tractor.devx import maybe_open_crash_handler
+    with maybe_open_crash_handler(pdb=pdb):
         log = get_console_log(loglevel, name='cli')
 
         if pdb:
@@ -241,10 +241,14 @@ def cli(
     }
     assert brokermods
 
-    regaddr: tuple[str, int] = (
+    # TODO: load endpoints from `conf::[network].pikerd`
+    # - pikerd vs. regd, separate registry daemon?
+    # - expose datad vs. brokerd?
+    # - bind emsd with certain perms on public iface?
+    regaddrs: list[tuple[str, int]] = [(
         _default_registry_host,
         _default_registry_port,
-    )
+    )]
 
     ctx.obj.update({
         'brokers': brokers,
@@ -254,7 +258,7 @@ def cli(
         'log': get_console_log(loglevel),
         'confdir': config._config_dir,
         'wl_path': config._watchlists_data_path,
-        'registry_addr': regaddr,
+        'registry_addrs': regaddrs,
     })
 
     # allow enabling same loglevel in ``tractor`` machinery
