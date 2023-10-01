@@ -66,7 +66,13 @@ async def open_registry(
     ensure_exists: bool = True,
 
 ) -> list[tuple[str, int]]:
+    '''
+    Open the service-actor-discovery registry by returning a set of
+    tranport socket-addrs to registrar actors which may be
+    contacted and queried for similar addresses for other
+    non-registrar actors.
 
+    '''
     global _tractor_kwargs
     actor = tractor.current_actor()
     uid = actor.uid
@@ -76,11 +82,19 @@ async def open_registry(
         and addrs
     ):
         if preset_reg_addrs != addrs:
-            raise RuntimeError(
-                f'`{uid}` has non-matching registrar addresses?\n'
-                f'request: {addrs}\n'
-                f'already set: {preset_reg_addrs}'
-            )
+            # if any(addr in preset_reg_addrs for addr in addrs):
+            diff: set[tuple[str, int]] = set(preset_reg_addrs) - set(addrs)
+            if diff:
+                log.warning(
+                    f'`{uid}` requested only subset of registrars: {addrs}\n'
+                    f'However there are more @{diff}'
+                )
+            else:
+                raise RuntimeError(
+                    f'`{uid}` has non-matching registrar addresses?\n'
+                    f'request: {addrs}\n'
+                    f'already set: {preset_reg_addrs}'
+                )
 
     was_set: bool = False
 
@@ -122,7 +136,7 @@ async def open_registry(
 @acm
 async def find_service(
     service_name: str,
-    registry_addrs: list[tuple[str, int]],
+    registry_addrs: list[tuple[str, int]] | None = None,
 
     first_only: bool = True,
 
@@ -130,22 +144,26 @@ async def find_service(
 
     reg_addrs: list[tuple[str, int]]
     async with open_registry(
-        addrs=registry_addrs,
+        addrs=(
+            registry_addrs
+            # NOTE: if no addr set is passed assume the registry has
+            # already been opened and use the previously applied
+            # startup set.
+            or Registry.addrs
+        ),
     ) as reg_addrs:
         log.info(f'Scanning for service `{service_name}`')
         # attach to existing daemon by name if possible
         async with tractor.find_actor(
             service_name,
             registry_addrs=reg_addrs,
+            only_first=first_only,  # if set only returns single ref
         ) as maybe_portals:
             if not maybe_portals:
                 yield None
                 return
 
-            if first_only:
-                yield maybe_portals[0]
-            else:
-                yield maybe_portals[0]
+            yield maybe_portals
 
 
 async def check_for_service(
@@ -156,9 +174,11 @@ async def check_for_service(
     Service daemon "liveness" predicate.
 
     '''
-    async with open_registry(ensure_exists=False) as reg_addr:
-        async with tractor.query_actor(
+    async with (
+        open_registry(ensure_exists=False) as reg_addr,
+        tractor.query_actor(
             service_name,
             arbiter_sockaddr=reg_addr,
-        ) as sockaddr:
-            return sockaddr
+        ) as sockaddr,
+    ):
+        return sockaddr
