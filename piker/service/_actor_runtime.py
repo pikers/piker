@@ -56,7 +56,7 @@ def get_runtime_vars() -> dict[str, Any]:
 @acm
 async def open_piker_runtime(
     name: str,
-    registry_addrs: list[tuple[str, int]],
+    registry_addrs: list[tuple[str, int]] = [],
 
     enable_modules: list[str] = [],
     loglevel: Optional[str] = None,
@@ -93,6 +93,8 @@ async def open_piker_runtime(
             'piker_vars'
         ] = tractor_runtime_overrides
 
+        # NOTE: if no registrar list passed used the default of just
+        # setting it as the root actor on localhost.
         registry_addrs = (
             registry_addrs
             or [_default_reg_addr]
