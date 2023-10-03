@@ -1,18 +1,20 @@
 # piker: trading gear for hackers
-# Copyright (C) 2018-present  Tyler Goodlet (in stewardship of pikers)
+# Copyright (C) 2018-present Tyler Goodlet
+# (in stewardship for pikers, everywhere.)
 
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU Affero General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
+# This program is free software: you can redistribute it and/or
+# modify it under the terms of the GNU Affero General Public
+# License as published by the Free Software Foundation, either
+# version 3 of the License, or (at your option) any later version.
 
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU Affero General Public License for more details.
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+# Affero General Public License for more details.
 
-# You should have received a copy of the GNU Affero General Public License
-# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+# You should have received a copy of the GNU Affero General Public
+# License along with this program.  If not, see
+# <https://www.gnu.org/licenses/>.
 
 '''
 CLI commons.
@@ -25,6 +27,7 @@ from types import ModuleType
 import click
 import trio
 import tractor
+from tractor._multiaddr import parse_maddr
 
 from ..log import (
     get_console_log,
@@ -40,6 +43,50 @@ from .. import config
 
 
 log = get_logger('piker.cli')
+
+
+def load_trans_eps(
+    network: dict | None = None,
+    maddrs: list[tuple] | None = None,
+
+) -> dict[str, dict[str, dict]]:
+
+    # transport-oriented endpoint multi-addresses
+    eps: dict[
+        str,  # service name, eg. `pikerd`, `emsd`..
+
+        # libp2p style multi-addresses parsed into prot layers
+        list[dict[str, str | int]]
+    ] = {}
+
+    if (
+        network
+        and not maddrs
+    ):
+        # load network section and (attempt to) connect all endpoints
+        # which are reachable B)
+        for key, maddrs in network.items():
+            match key:
+
+                # TODO: resolve table across multiple discov
+                # prots Bo
+                case 'resolv':
+                    pass
+
+                case 'pikerd':
+                    dname: str = key
+                    for maddr in maddrs:
+                        layers: dict = parse_maddr(maddr)
+                        eps.setdefault(
+                            dname,
+                            [],
+                        ).append(layers)
+
+    elif maddrs:
+        # presume user is manually specifying the root actor ep.
+        eps['pikerd'] = [parse_maddr(maddr)]
+
+    return eps
 
 
 @click.command()
@@ -76,7 +123,7 @@ log = get_logger('piker.cli')
 #     help='Enable local ``elasticsearch`` instance'
 # )
 def pikerd(
-    maddr: str | None,
+    maddr: list[str] | None,
     loglevel: str,
     tl: bool,
     pdb: bool,
@@ -100,63 +147,34 @@ def pikerd(
                 "\n"
             ))
 
-        # service-actor registry endpoint socket-address
-        regaddrs: list[tuple[str, int]] | None = None
+        # service-actor registry endpoint socket-address set
+        regaddrs: list[tuple[str, int]] = []
 
         conf, _ = config.load(
             conf_name='conf',
         )
         network: dict = conf.get('network')
-        if network is None:
+        if (
+            network is None
+            and not maddr
+        ):
             regaddrs = [(
                 _default_registry_host,
                 _default_registry_port,
             )]
 
-        from .. import service
-        from tractor._multiaddr import parse_maddr
-
-        # transport-oriented endpoint multi-addresses
-        eps: dict[
-            str,  # service name, eg. `pikerd`, `emsd`..
-
-            # libp2p style multi-addresses parsed into prot layers
-            list[dict[str, str | int]]
-        ] = {}
-
-        if (
-            not maddr
-            and network
-        ):
-            # load network section and (attempt to) connect all endpoints
-            # which are reachable B)
-            for key, maddrs in network.items():
-                match key:
-
-                    # TODO: resolve table across multiple discov
-                    # prots Bo
-                    case 'resolv':
-                        pass
-
-                    case 'pikerd':
-                        dname: str = key
-                        for maddr in maddrs:
-                            layers: dict = parse_maddr(maddr)
-                            eps.setdefault(
-                                dname,
-                                [],
-                            ).append(layers)
-
         else:
-            # presume user is manually specifying the root actor ep.
-            eps['pikerd'] = [parse_maddr(maddr)]
+            eps: dict = load_trans_eps(
+                network,
+                maddr,
+            )
+            for layers in eps['pikerd']:
+                regaddrs.append((
+                    layers['ipv4']['addr'],
+                    layers['tcp']['port'],
+                ))
 
-        regaddrs: list[tuple[str, int]] = []
-        for layers in eps['pikerd']:
-            regaddrs.append((
-                layers['ipv4']['addr'],
-                layers['tcp']['port'],
-            ))
+        from .. import service
 
         async def main():
             service_mngr: service.Services
@@ -208,8 +226,24 @@ def pikerd(
 @click.option('--loglevel', '-l', default='warning', help='Logging level')
 @click.option('--tl', is_flag=True, help='Enable tractor logging')
 @click.option('--configdir', '-c', help='Configuration directory')
-@click.option('--maddr', '-m', default=None, help='Multiaddr to bind')
-@click.option('--raddr', '-r', default=None, help='Registrar addr to contact')
+@click.option(
+    '--pdb',
+    is_flag=True,
+    help='Enable runtime debug mode ',
+)
+@click.option(
+    '--maddr',
+    '-m',
+    default=None,
+    multiple=True,
+    help='Multiaddr to bind',
+)
+@click.option(
+    '--regaddr',
+    '-r',
+    default=None,
+    help='Registrar addr to contact',
+)
 @click.pass_context
 def cli(
     ctx: click.Context,
@@ -217,10 +251,11 @@ def cli(
     loglevel: str,
     tl: bool,
     configdir: str,
+    pdb: bool,
 
     # TODO: make these list[str] with multiple -m maddr0 -m maddr1
-    maddr: str,
-    raddr: str,
+    maddr: list[str],
+    regaddr: str,
 
 ) -> None:
     if configdir is not None:
@@ -245,10 +280,16 @@ def cli(
     # - pikerd vs. regd, separate registry daemon?
     # - expose datad vs. brokerd?
     # - bind emsd with certain perms on public iface?
-    regaddrs: list[tuple[str, int]] = [(
+    regaddrs: list[tuple[str, int]] = regaddr or [(
         _default_registry_host,
         _default_registry_port,
     )]
+
+    # TODO: factor [network] section parsing out from pikerd
+    # above and call it here as well.
+    # if maddr:
+    #     for addr in maddr:
+    #         layers: dict = parse_maddr(addr)
 
     ctx.obj.update({
         'brokers': brokers,
@@ -259,6 +300,11 @@ def cli(
         'confdir': config._config_dir,
         'wl_path': config._watchlists_data_path,
         'registry_addrs': regaddrs,
+        'pdb': pdb,  # debug mode flag
+
+        # TODO: endpoint parsing, pinging and binding
+        # on no existing server.
+        # 'maddrs': maddr,
     })
 
     # allow enabling same loglevel in ``tractor`` machinery

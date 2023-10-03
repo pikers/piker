@@ -96,9 +96,17 @@ def monitor(config, rate, name, dhost, test, tl):
 @click.option('--rate', '-r', default=1, help='Logging level')
 @click.argument('symbol', required=True)
 @click.pass_obj
-def optschain(config, symbol, date, rate, test):
-    """Start an option chain UI
-    """
+def optschain(
+    config,
+    symbol,
+    date,
+    rate,
+    test,
+):
+    '''
+    Start an option chain UI
+
+    '''
     # global opts
     loglevel = config['loglevel']
     brokername = config['broker']
@@ -132,18 +140,19 @@ def optschain(config, symbol, date, rate, test):
     default=None,
     help='Enable pyqtgraph profiling'
 )
-@click.option(
-    '--pdb',
-    is_flag=True,
-    help='Enable tractor debug mode'
-)
+# @click.option(
+#     '--pdb',
+#     is_flag=True,
+#     help='Enable tractor debug mode'
+# )
 @click.argument('symbols', nargs=-1, required=True)
+# @click.pass_context
 @click.pass_obj
 def chart(
     config,
+    # ctx: click.Context,
     symbols: list[str],
     profile,
-    pdb: bool,
 ):
     '''
     Run chart UI app, spawning service daemons dynamically as
@@ -174,14 +183,50 @@ def chart(
     tractorloglevel = config['tractorloglevel']
     pikerloglevel = config['loglevel']
 
-    _main(
-        syms=symbols,
-        brokermods=brokermods,
-        piker_loglevel=pikerloglevel,
-        tractor_kwargs={
-            'debug_mode': pdb,
-            'loglevel': tractorloglevel,
-            'name': 'chart',
-            'registry_addrs': config.get('registry_addrs'),
-        },
+    maddrs: list[tuple[str, int]] = config.get(
+        'maddrs',
+        [],
     )
+
+    # if maddrs:
+    #     from tractor._multiaddr import parse_maddr
+    #     for addr in maddrs:
+    #         breakpoint()
+    #         layers: dict = parse_maddr(addr)
+
+    regaddrs: list[tuple[str, int]] = config.get(
+        'registry_addrs',
+        [],
+    )
+
+    from ..config import load
+    conf, _ = load(
+        conf_name='conf',
+    )
+    network: dict = conf.get('network')
+    if network:
+        from ..cli import load_trans_eps
+        eps: dict = load_trans_eps(
+            network,
+            maddrs,
+        )
+        for layers in eps['pikerd']:
+            regaddrs.append((
+                layers['ipv4']['addr'],
+                layers['tcp']['port'],
+            ))
+
+    from tractor.devx import maybe_open_crash_handler
+    pdb: bool = config['pdb']
+    with maybe_open_crash_handler(pdb=pdb):
+        _main(
+            syms=symbols,
+            brokermods=brokermods,
+            piker_loglevel=pikerloglevel,
+            tractor_kwargs={
+                'debug_mode': pdb,
+                'loglevel': tractorloglevel,
+                'name': 'chart',
+                'registry_addrs': list(set(regaddrs)),
+            },
+        )
