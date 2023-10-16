@@ -913,8 +913,17 @@ async def translate_and_relay_brokerd_events(
             }:
                 if (
                     not oid
+                    # try to lookup any order dialog by
+                    # brokerd-side id..
+                    and not (
+                        oid := book._ems2brokerd_ids.inverse.get(reqid)
+                    )
                 ):
-                    oid: str = book._ems2brokerd_ids.inverse[reqid]
+                    log.warning(
+                        f'Rxed unusable error-msg:\n'
+                        f'{brokerd_msg}'
+                    )
+                    continue
 
                 msg = BrokerdError(**brokerd_msg)
 
