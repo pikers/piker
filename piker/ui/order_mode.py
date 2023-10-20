@@ -613,13 +613,13 @@ class OrderMode:
 
         oids: set[str] = set()
         for line in lines:
-            dialog: Dialog = getattr(line, 'dialog', None)
-            oid: str = dialog.uuid
-            if (
-                dialog
-                and oid not in oids
-            ):
-                oids.add(oid)
+            if dialog := getattr(line, 'dialog', None):
+                oid: str = dialog.uuid
+                if (
+                    dialog
+                    and oid not in oids
+                ):
+                    oids.add(oid)
 
         return oids
 
