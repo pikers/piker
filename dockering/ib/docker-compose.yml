@@ -19,8 +19,9 @@ services:
 
     # other image tags available:
     # https://github.com/waytrade/ib-gateway-docker#supported-tags
-    # image: waytrade/ib-gateway:981.3j
-    image: waytrade/ib-gateway:1012.2i
+    # image: waytrade/ib-gateway:1012.2i
+    image: ghcr.io/gnzsnz/ib-gateway:latest
+
     restart: 'no'  # restart on boot whenev there's a crash or user clicsk
     network_mode: 'host'
 
