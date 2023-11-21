@@ -102,7 +102,7 @@ async def open_registry(
         not tractor.is_root_process()
         and not Registry.addrs
     ):
-        Registry.addrs.extend(actor._reg_addrs)
+        Registry.addrs.extend(actor.reg_addrs)
 
     if (
         ensure_exists

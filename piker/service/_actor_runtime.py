@@ -86,7 +86,7 @@ async def open_piker_runtime(
     '''
     try:
         # check for existing runtime
-        actor = tractor.current_actor().uid
+        actor = tractor.current_actor()
 
     except tractor._exceptions.NoRuntime:
         tractor._state._runtime_vars[
@@ -116,15 +116,16 @@ async def open_piker_runtime(
                 enable_modules=enable_modules,
 
                 **tractor_kwargs,
-            ) as _,
+            ) as actor,
 
             open_registry(
                 registry_addrs,
                 ensure_exists=False,
             ) as addrs,
         ):
+            assert actor is tractor.current_actor()
             yield (
-                tractor.current_actor(),
+                actor,
                 addrs,
             )
     else:
@@ -268,28 +269,39 @@ async def maybe_open_pikerd(
     #     async with open_portal(chan) as arb_portal:
     #         yield arb_portal
 
-    registry_addrs = registry_addrs or [_default_reg_addr]
+    registry_addrs: list[tuple[str, int]] = (
+        registry_addrs
+        or [_default_reg_addr]
+    )
 
+    pikerd_portal: tractor.Portal | None
     async with (
         open_piker_runtime(
             name=query_name,
             registry_addrs=registry_addrs,
             loglevel=loglevel,
             **kwargs,
-        ) as _,
+        ) as (actor, addrs),
 
+        # try to attach to any existing (host-local) `pikerd`
         tractor.find_actor(
             _root_dname,
             registry_addrs=registry_addrs,
             only_first=True,
-        ) as portal
+            # raise_on_none=True,
+        ) as pikerd_portal,
+
     ):
-        # connect to any existing daemon presuming
-        # its registry socket was selected.
-        if (
-            portal is not None
-        ):
-            yield portal
+        # connect to any existing remote daemon presuming its
+        # registry socket was selected.
+        if pikerd_portal is not None:
+
+            # sanity check that we are actually connecting to
+            # a remote process and not ourselves.
+            assert actor.uid != pikerd_portal.chan.uid
+            assert registry_addrs
+
+            yield pikerd_portal
             return
 
     # presume pikerd role since no daemon could be found at
