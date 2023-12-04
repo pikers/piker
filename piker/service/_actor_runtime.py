@@ -84,10 +84,10 @@ async def open_piker_runtime(
     a root actor.
 
     '''
+    # check for existing runtime, boot it
+    # if not already running.
     try:
-        # check for existing runtime
         actor = tractor.current_actor()
-
     except tractor._exceptions.NoRuntime:
         tractor._state._runtime_vars[
             'piker_vars'
@@ -298,7 +298,7 @@ async def maybe_open_pikerd(
 
             # sanity check that we are actually connecting to
             # a remote process and not ourselves.
-            assert actor.uid != pikerd_portal.chan.uid
+            assert actor.uid != pikerd_portal.channel.uid
             assert registry_addrs
 
             yield pikerd_portal
