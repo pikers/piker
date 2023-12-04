@@ -140,6 +140,7 @@ def delete(
 def anal(
     fqme: str,
     period: int = 60,
+    pdb: bool = False,
 
 ) -> np.ndarray:
     '''
@@ -151,7 +152,7 @@ def anal(
             open_piker_runtime(
                 # are you a bear or boi?
                 'tsdb_polars_anal',
-                debug_mode=True,
+                debug_mode=pdb,
             ),
             open_storage_client() as (
                 mod,
@@ -159,7 +160,7 @@ def anal(
             ),
         ):
             syms: list[str] = await client.list_keys()
-            print(f'{len(syms)} FOUND for {mod.name}')
+            log.info(f'{len(syms)} FOUND for {mod.name}')
 
             (
                 history,
