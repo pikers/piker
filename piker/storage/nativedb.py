@@ -72,6 +72,12 @@ from piker.log import get_logger
 log = get_logger('storage.nativedb')
 
 
+class TimeseriesNotFound(Exception):
+    '''
+    No timeseries entry can be found for this backend.
+
+    '''
+
 # NOTE: thanks to this SO answer for the below conversion routines
 # to go from numpy struct-arrays to polars dataframes and back:
 # https://stackoverflow.com/a/72054819
@@ -228,8 +234,21 @@ class NativeStorageClient:
                 fqme,
                 timeframe,
             )
-        except FileNotFoundError:
-            return None
+        except FileNotFoundError as fnfe:
+
+            bs_fqme, _, *_ = fqme.rpartition('.')
+
+            possible_matches: list[str] = []
+            for tskey in self._index:
+                if bs_fqme in tskey:
+                    possible_matches.append(tskey)
+
+            match_str: str = '\n'.join(possible_matches)
+            raise TimeseriesNotFound(
+                f'No entry for `{fqme}`?\n'
+                f'Maybe you need a more specific fqme-key like:\n\n'
+                f'{match_str}'
+            ) from fnfe
 
         times = array['time']
         return (
@@ -376,6 +395,8 @@ class NativeStorageClient:
     #     ...
 
 
+# TODO: does this need to be async on average?
+# I guess for any IPC connected backend yes?
 @acm
 async def get_client(
 
@@ -393,7 +414,7 @@ async def get_client(
     '''
     datadir: Path = config.get_conf_dir() / 'nativedb'
     if not datadir.is_dir():
-        log.info(f'Creating `nativedb` director: {datadir}')
+        log.info(f'Creating `nativedb` dir: {datadir}')
         datadir.mkdir()
 
     client = NativeStorageClient(datadir)

@@ -142,14 +142,21 @@ def anal(
     period: int = 60,
 
 ) -> np.ndarray:
+    '''
+    Anal-ysis is when you take the data do stuff to it, i think.
 
+    '''
     async def main():
         async with (
             open_piker_runtime(
+                # are you a bear or boi?
                 'tsdb_polars_anal',
                 debug_mode=True,
             ),
-            open_storage_client() as (mod, client),
+            open_storage_client() as (
+                mod,
+                client,
+            ),
         ):
             syms: list[str] = await client.list_keys()
             print(f'{len(syms)} FOUND for {mod.name}')
