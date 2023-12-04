@@ -243,7 +243,7 @@ class NativeStorageClient:
                 if bs_fqme in tskey:
                     possible_matches.append(tskey)
 
-            match_str: str = '\n'.join(possible_matches)
+            match_str: str = '\n'.join(sorted(possible_matches))
             raise TimeseriesNotFound(
                 f'No entry for `{fqme}`?\n'
                 f'Maybe you need a more specific fqme-key like:\n\n'
