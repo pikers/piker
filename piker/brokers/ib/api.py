@@ -229,8 +229,8 @@ _samplings: dict[int, tuple[str, str]] = {
     # throughput can be made faster during backfilling.
     60: (
         '1 min',
-        '1 D',
-        pendulum.duration(days=1),
+        '2 D',
+        pendulum.duration(days=2),
     ),
 }
 

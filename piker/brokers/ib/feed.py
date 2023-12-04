@@ -818,7 +818,7 @@ async def stream_quotes(
     details: ibis.ContractDetails
     async with (
         open_data_client() as proxy,
-        trio.open_nursery() as tn,
+        # trio.open_nursery() as tn,
     ):
         mkt, details = await get_mkt_info(
             sym,

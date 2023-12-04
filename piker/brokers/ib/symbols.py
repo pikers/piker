@@ -214,7 +214,7 @@ async def open_symbol_search(ctx: tractor.Context) -> None:
             last = time.time()
             async for pattern in stream:
                 log.info(f'received {pattern}')
-                now = time.time()
+                now: float = time.time()
 
                 # this causes tractor hang...
                 # assert 0
@@ -261,7 +261,9 @@ async def open_symbol_search(ctx: tractor.Context) -> None:
                 # defined adhoc symbol set.
                 stock_results = []
 
-                async def stash_results(target: Awaitable[list]):
+                async def extend_results(
+                    target: Awaitable[list]
+                ) -> None:
                     try:
                         results = await target
                     except tractor.trionics.Lagged:
@@ -274,7 +276,7 @@ async def open_symbol_search(ctx: tractor.Context) -> None:
                     with trio.move_on_after(3) as cs:
                         async with trio.open_nursery() as sn:
                             sn.start_soon(
-                                stash_results,
+                                extend_results,
                                 proxy.search_symbols(
                                     pattern=pattern,
                                     upto=5,
@@ -289,8 +291,10 @@ async def open_symbol_search(ctx: tractor.Context) -> None:
                             f'Search timeout? {proxy._aio_ns.ib.client}'
                         )
                         continue
-                    else:
+                    elif stock_results:
                         break
+                    # else:
+                    await tractor.pause()
 
                     # # match against our ad-hoc set immediately
                     # adhoc_matches = fuzzy.extract(
