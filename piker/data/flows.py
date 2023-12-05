@@ -42,26 +42,6 @@ if TYPE_CHECKING:
     from .feed import Feed
 
 
-# TODO: ideas for further abstractions as per
-# https://github.com/pikers/piker/issues/216 and
-# https://github.com/pikers/piker/issues/270:
-# - a ``Cascade`` would be the minimal "connection" of 2 ``Flumes``
-#   as per circuit parlance:
-#   https://en.wikipedia.org/wiki/Two-port_network#Cascade_connection
-#     - could cover the combination of our `FspAdmin` and the
-#       backend `.fsp._engine` related machinery to "connect" one flume
-#       to another?
-# - a (financial signal) ``Flow`` would be the a "collection" of such
-#    minmial cascades. Some engineering based jargon concepts:
-#     - https://en.wikipedia.org/wiki/Signal_chain
-#     - https://en.wikipedia.org/wiki/Daisy_chain_(electrical_engineering)
-#     - https://en.wikipedia.org/wiki/Audio_signal_flow
-#     - https://en.wikipedia.org/wiki/Digital_signal_processing#Implementation
-#     - https://en.wikipedia.org/wiki/Dataflow_programming
-#     - https://en.wikipedia.org/wiki/Signal_programming
-#     - https://en.wikipedia.org/wiki/Incremental_computing
-
-
 class Flume(Struct):
     '''
     Composite reference type which points to all the addressing handles
