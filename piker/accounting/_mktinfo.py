@@ -327,7 +327,11 @@ class MktPair(Struct, frozen=True):
     ) -> dict:
         d = super().to_dict(**kwargs)
         d['src'] = self.src.to_dict(**kwargs)
-        d['dst'] = self.dst.to_dict(**kwargs)
+
+        if not isinstance(self.dst, str):
+            d['dst'] = self.dst.to_dict(**kwargs)
+        else:
+            d['dst'] = str(self.dst)
 
         d['price_tick'] = str(self.price_tick)
         d['size_tick'] = str(self.size_tick)
@@ -349,11 +353,16 @@ class MktPair(Struct, frozen=True):
         Constructor for a received msg-dict normally received over IPC.
 
         '''
-        dst_asset_msg = msg.pop('dst')
-        dst = Asset.from_msg(dst_asset_msg)  # .copy()
+        if not isinstance(
+            dst_asset_msg := msg.pop('dst'),
+            str,
+        ):
+            dst: Asset = Asset.from_msg(dst_asset_msg)  # .copy()
+        else:
+            dst: str = dst_asset_msg
 
-        src_asset_msg = msg.pop('src')
-        src = Asset.from_msg(src_asset_msg)  # .copy()
+        src_asset_msg: dict = msg.pop('src')
+        src: Asset = Asset.from_msg(src_asset_msg)  # .copy()
 
         # XXX NOTE: ``msgspec`` can encode `Decimal` but it doesn't
         # decide to it by default since we aren't spec-cing these
