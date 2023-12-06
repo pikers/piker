@@ -390,7 +390,7 @@ class FspAdmin:
         complete: trio.Event,
         started: trio.Event,
         fqme: str,
-        dst_fsp_flume: Flume,
+        dst_flume: Flume,
         conf: dict,
         target: Fsp,
         loglevel: str,
@@ -408,16 +408,14 @@ class FspAdmin:
                 # chaining entrypoint
                 cascade,
 
+                # TODO: can't we just drop this and expect
+                # far end to read the src flume's .mkt.fqme?
                 # data feed key
                 fqme=fqme,
 
-                # TODO: pass `Flume.to_msg()`s here?
-                # mems
-                src_shm_token=self.flume.rt_shm.token,
-                dst_shm_token=dst_fsp_flume.rt_shm.token,
-
-                # target
-                ns_path=ns_path,
+                src_flume_addr=self.flume.to_msg(),
+                dst_flume_addr=dst_flume.to_msg(),
+                ns_path=ns_path,  # edge-bind-func
 
                 loglevel=loglevel,
                 zero_on_step=conf.get('zero_on_step', False),
@@ -431,14 +429,14 @@ class FspAdmin:
             ctx.open_stream() as stream,
         ):
 
-            dst_fsp_flume.stream: tractor.MsgStream = stream
+            dst_flume.stream: tractor.MsgStream = stream
 
             # register output data
             self._registry[
                 (fqme, ns_path)
             ] = (
                 stream,
-                dst_fsp_flume.rt_shm,
+                dst_flume.rt_shm,
                 complete
             )
 
@@ -515,7 +513,7 @@ class FspAdmin:
             broker='piker',
             _atype='fsp',
         )
-        dst_fsp_flume = Flume(
+        dst_flume = Flume(
             mkt=mkt,
             _rt_shm_token=dst_shm.token,
             first_quote={},
@@ -543,13 +541,13 @@ class FspAdmin:
             complete,
             started,
             fqme,
-            dst_fsp_flume,
+            dst_flume,
             conf,
             target,
             loglevel,
         )
 
-        return dst_fsp_flume, started
+        return dst_flume, started
 
     async def open_fsp_chart(
         self,

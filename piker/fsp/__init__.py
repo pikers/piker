@@ -26,7 +26,10 @@ from ._api import (
     maybe_mk_fsp_shm,
     Fsp,
 )
-from ._engine import cascade
+from ._engine import (
+    cascade,
+    Cascade,
+)
 from ._volume import (
     dolla_vlm,
     flow_rates,
@@ -35,6 +38,7 @@ from ._volume import (
 
 __all__: list[str] = [
     'cascade',
+    'Cascade',
     'maybe_mk_fsp_shm',
     'Fsp',
     'dolla_vlm',
@@ -46,9 +50,12 @@ __all__: list[str] = [
 async def latency(
     source: 'TickStream[Dict[str, float]]',  # noqa
     ohlcv: np.ndarray
+
 ) -> AsyncIterator[np.ndarray]:
-    """Latency measurements, broker to piker.
-    """
+    '''
+    Latency measurements, broker to piker.
+
+    '''
     # TODO: do we want to offer yielding this async
     # before the rt data connection comes up?
 
