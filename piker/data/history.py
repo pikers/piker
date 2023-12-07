@@ -57,6 +57,7 @@ from ._sampling import (
 from ..brokers._util import (
     DataUnavailable,
 )
+from ..storage import TimeseriesNotFound
 
 if TYPE_CHECKING:
     from bidict import bidict
@@ -690,13 +691,18 @@ async def tsdb_backfill(
         # but if not then below the remaining history can be lazy
         # loaded?
         fqme: str = mkt.fqme
-        tsdb_entry: tuple | None =  await storage.load(
-            fqme,
-            timeframe=timeframe,
-        )
-
         last_tsdb_dt: datetime | None = None
-        if tsdb_entry:
+        try:
+            tsdb_entry: tuple | None =  await storage.load(
+                fqme,
+                timeframe=timeframe,
+            )
+        except TimeseriesNotFound:
+            log.warning(
+                f'No timeseries yet for {fqme}'
+            )
+
+        else:
             (
                 tsdb_history,
                 first_tsdb_dt,
@@ -963,7 +969,8 @@ async def manage_history(
             sub_for_broadcasts=False,
 
         ) as sample_stream:
-            # register 1s and 1m buffers with the global incrementer task
+            # register 1s and 1m buffers with the global
+            # incrementer task
             log.info(f'Connected to sampler stream: {sample_stream}')
 
             for timeframe in [60, 1]:

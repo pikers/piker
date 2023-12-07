@@ -139,6 +139,13 @@ class StorageClient(
         ...
 
 
+class TimeseriesNotFound(Exception):
+    '''
+    No timeseries entry can be found for this backend.
+
+    '''
+
+
 class StorageConnectionError(ConnectionError):
     '''
     Can't connect to the desired tsdb subsys/service.

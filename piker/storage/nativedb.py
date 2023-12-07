@@ -19,7 +19,8 @@
             call a poor man's tsdb).
 
 AKA a `piker`-native file-system native "time series database"
-without needing an extra process and no standard TSDB features, YET!
+without needing an extra process and no standard TSDB features,
+YET!
 
 '''
 # TODO: like there's soo much..
@@ -67,16 +68,11 @@ from piker import config
 from piker.data import def_iohlcv_fields
 from piker.data import ShmArray
 from piker.log import get_logger
+from . import TimeseriesNotFound
 
 
 log = get_logger('storage.nativedb')
 
-
-class TimeseriesNotFound(Exception):
-    '''
-    No timeseries entry can be found for this backend.
-
-    '''
 
 # NOTE: thanks to this SO answer for the below conversion routines
 # to go from numpy struct-arrays to polars dataframes and back:
