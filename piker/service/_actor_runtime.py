@@ -282,27 +282,32 @@ async def maybe_open_pikerd(
             loglevel=loglevel,
             **kwargs,
         ) as (actor, addrs),
-
-        # try to attach to any existing (host-local) `pikerd`
-        tractor.find_actor(
-            _root_dname,
-            registry_addrs=registry_addrs,
-            only_first=True,
-            # raise_on_none=True,
-        ) as pikerd_portal,
-
     ):
-        # connect to any existing remote daemon presuming its
-        # registry socket was selected.
-        if pikerd_portal is not None:
-
-            # sanity check that we are actually connecting to
-            # a remote process and not ourselves.
-            assert actor.uid != pikerd_portal.channel.uid
-            assert registry_addrs
-
-            yield pikerd_portal
+        if _root_dname in actor.uid:
+            yield None
             return
+
+        # NOTE: IFF running in disti mode, try to attach to any
+        # existing (host-local) `pikerd`.
+        else:
+            async with tractor.find_actor(
+                _root_dname,
+                registry_addrs=registry_addrs,
+                only_first=True,
+                # raise_on_none=True,
+            ) as pikerd_portal:
+
+                # connect to any existing remote daemon presuming its
+                # registry socket was selected.
+                if pikerd_portal is not None:
+
+                    # sanity check that we are actually connecting to
+                    # a remote process and not ourselves.
+                    assert actor.uid != pikerd_portal.channel.uid
+                    assert registry_addrs
+
+                    yield pikerd_portal
+                    return
 
     # presume pikerd role since no daemon could be found at
     # configured address
