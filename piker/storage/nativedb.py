@@ -272,9 +272,21 @@ class NativeStorageClient:
         # limit: int = int(200e3),
 
     ) -> np.ndarray:
-        path: Path = self.mk_path(fqme, period=int(timeframe))
+        path: Path = self.mk_path(
+            fqme,
+            period=int(timeframe),
+        )
         df: pl.DataFrame = pl.read_parquet(path)
-        self._dfs.setdefault(timeframe, {})[fqme] = df
+
+        # cache df for later usage since we (currently) need to
+        # convert to np.ndarrays to push to our `ShmArray` rt
+        # buffers subsys but later we may operate entirely on
+        # pyarrow arrays/buffers so keeping the dfs around for
+        # a variety of purposes is handy.
+        self._dfs.setdefault(
+            timeframe,
+            {},
+        )[fqme] = df
 
         # TODO: filter by end and limit inputs
         # times: pl.Series = df['time']
@@ -329,7 +341,7 @@ class NativeStorageClient:
             time.time() - start,
             ndigits=6,
         )
-        print(
+        log.info(
             f'parquet write took {delay} secs\n'
             f'file path: {path}'
         )
@@ -339,7 +351,7 @@ class NativeStorageClient:
     async def write_ohlcv(
         self,
         fqme: str,
-        ohlcv: np.ndarray,
+        ohlcv: np.ndarray | pl.DataFrame,
         timeframe: int,
 
     ) -> Path:
