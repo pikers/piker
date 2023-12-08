@@ -263,6 +263,19 @@ def with_dts(
     # )
 
 
+def dedup_dt(
+    df: pl.DataFrame,
+) -> pl.DataFrame:
+    '''
+    Drop duplicate date-time rows (normally from an OHLC frame).
+
+    '''
+    return df.unique(
+        subset=['dt'],
+        maintain_order=True,
+    )
+
+
 def detect_time_gaps(
     df: pl.DataFrame,
 
@@ -294,10 +307,12 @@ def detect_time_gaps(
     '''
     return (
         with_dts(df)
+        # First by a seconds unit step size
         .filter(
             pl.col('s_diff').abs() > expect_period
         )
         .filter(
+            # Second by an arbitrary dt-unit step size
             getattr(
                 pl.col('dt_diff').dt,
                 gap_dt_unit,
