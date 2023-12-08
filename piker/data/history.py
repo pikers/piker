@@ -716,9 +716,14 @@ async def tsdb_backfill(
             backfill_diff: Duration = mr_start_dt - last_tsdb_dt
             offset_s: float = backfill_diff.in_seconds()
 
-            # XXX EDGE CASE: when the venue was closed (say over
-            # the weeknd) causing a timeseries gap, AND the query
-            # frames size (eg. for 1s we rx 2k datums ~= 33.33m) IS
+            # XXX EDGE CASEs: the most recent frame overlaps with
+            # prior tsdb history!!
+            # - so the latest frame's start time is earlier then
+            # the tsdb's latest sample.
+            # - alternatively this may also more generally occur
+            # when the venue was closed (say over the weeknd)
+            # causing a timeseries gap, AND the query frames size
+            # (eg. for ib's 1s we rx 2k datums ~= 33.33m) IS
             # GREATER THAN the current venue-market's operating
             # session (time) we will receive datums from BEFORE THE
             # CLOSURE GAP and thus the `offset_s` value will be
@@ -727,20 +732,35 @@ async def tsdb_backfill(
             # tsdb. In this case we instead only retreive and push
             # the series portion missing from the db's data set.
             if offset_s < 0:
-                backfill_diff: Duration = mr_end_dt - last_tsdb_dt
-                offset_s: float = backfill_diff.in_seconds()
+                non_overlap_diff: Duration = mr_end_dt - last_tsdb_dt
+                non_overlap_offset_s: float = backfill_diff.in_seconds()
 
             offset_samples: int = round(offset_s / timeframe)
 
             # TODO: see if there's faster multi-field reads:
             # https://numpy.org/doc/stable/user/basics.rec.html#accessing-multiple-fields
             # re-index  with a `time` and index field
-            prepend_start = shm._first.value - offset_samples + 1
+            if offset_s > 0:
+                # NOTE XXX: ONLY when there is an actual gap
+                # between the earliest sample in the latest history
+                # frame do we want to NOT stick the latest tsdb
+                # history adjacent to that latest frame!
+                prepend_start = shm._first.value - offset_samples + 1
+                to_push = tsdb_history[-prepend_start:]
+            else: 
+                # when there is overlap we want to remove the
+                # overlapping samples from the tsdb portion (taking
+                # instead the latest frame's values since THEY
+                # SHOULD BE THE SAME) and prepend DIRECTLY adjacent
+                # to the latest frame!
+                # TODO: assert the overlap segment array contains
+                # the same values!?!
+                prepend_start = shm._first.value
+                to_push = tsdb_history[-(shm._first.value):offset_samples - 1]
 
             # tsdb history is so far in the past we can't fit it in
             # shm buffer space so simply don't load it!
             if prepend_start > 0:
-                to_push = tsdb_history[-prepend_start:]
                 shm.push(
                     to_push,
 
