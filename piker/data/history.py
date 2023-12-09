@@ -731,9 +731,9 @@ async def tsdb_backfill(
             # to push datums that have already been recorded in the
             # tsdb. In this case we instead only retreive and push
             # the series portion missing from the db's data set.
-            if offset_s < 0:
-                non_overlap_diff: Duration = mr_end_dt - last_tsdb_dt
-                non_overlap_offset_s: float = backfill_diff.in_seconds()
+            # if offset_s < 0:
+            #     non_overlap_diff: Duration = mr_end_dt - last_tsdb_dt
+            #     non_overlap_offset_s: float = backfill_diff.in_seconds()
 
             offset_samples: int = round(offset_s / timeframe)
 
