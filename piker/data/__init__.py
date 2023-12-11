@@ -56,6 +56,7 @@ __all__: list[str] = [
     'ShmArray',
     'iterticks',
     'maybe_open_shm_array',
+    'match_from_pairs',
     'attach_shm_array',
     'open_shm_array',
     'get_shm_token',

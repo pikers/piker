@@ -406,7 +406,7 @@ async def start_backfill(
             # TODO: ideally these never exist but somehow it seems
             # sometimes we're writing zero-ed segments on certain
             # (teardown) cases?
-            from ._timeseries import detect_null_time_gap
+            from .tsp import detect_null_time_gap
 
             gap_indices: tuple | None = detect_null_time_gap(shm)
             while gap_indices:

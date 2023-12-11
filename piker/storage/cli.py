@@ -40,6 +40,7 @@ from piker.data import (
     maybe_open_shm_array,
     def_iohlcv_fields,
     ShmArray,
+    tsp,
 )
 from piker.data.history import (
     _default_hist_size,
@@ -136,53 +137,6 @@ def delete(
     trio.run(main, symbols)
 
 
-def dedupe(src_df: pl.DataFrame) -> tuple[
-    pl.DataFrame,  # with dts
-    pl.DataFrame,  # gaps
-    pl.DataFrame,  # with deduplicated dts (aka gap/repeat removal)
-    bool,
-]:
-    '''
-    Check for time series gaps and if found
-    de-duplicate any datetime entries, check for
-    a frame height diff and return the newly
-    dt-deduplicated frame.
-
-    '''
-    from piker.data import _timeseries as tsp
-    df: pl.DataFrame = tsp.with_dts(src_df)
-    gaps: pl.DataFrame = tsp.detect_time_gaps(df)
-    if not gaps.is_empty():
-
-        # remove duplicated datetime samples/sections
-        deduped: pl.DataFrame = tsp.dedup_dt(df)
-        deduped_gaps = tsp.detect_time_gaps(deduped)
-
-        log.warning(
-            f'Gaps found:\n{gaps}\n'
-            f'deduped Gaps found:\n{deduped_gaps}'
-        )
-        # TODO: rewrite this in polars and/or convert to
-        # ndarray to detect and remove?
-        # null_gaps = tsp.detect_null_time_gap()
-
-        diff: int = (
-            df.height
-            -
-            deduped.height
-        )
-        was_deduped: bool = False
-        if diff:
-            was_deduped: bool = True
-
-        return (
-            df,
-            gaps,
-            deduped,
-            was_deduped,
-        )
-
-
 @store.command()
 def anal(
     fqme: str,
@@ -236,7 +190,7 @@ def anal(
                 gaps,
                 deduped,
                 shortened,
-            ) = dedupe(shm_df)
+            ) = tsp.dedupe(shm_df)
 
             if shortened:
                 await client.write_ohlcv(
@@ -371,7 +325,7 @@ def ldshm(
                     gaps,
                     deduped,
                     was_dded,
-                ) = dedupe(shm_df)
+                ) = tsp.dedupe(shm_df)
 
                 # TODO: maybe only optionally enter this depending
                 # on some CLI flags and/or gap detection?

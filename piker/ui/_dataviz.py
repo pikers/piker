@@ -49,7 +49,7 @@ from ..data._formatters import (
     OHLCBarsAsCurveFmtr,  # OHLC converted to line
     StepCurveFmtr,  # "step" curve (like for vlm)
 )
-from ..data._timeseries import (
+from ..data.tsp import (
     slice_from_time,
 )
 from ._ohlc import (

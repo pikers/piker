@@ -23,11 +23,12 @@ Routines are generally implemented in either ``numpy`` or
 
 '''
 from __future__ import annotations
-from typing import Literal
+from functools import partial
 from math import (
     ceil,
     floor,
 )
+from typing import Literal
 
 import numpy as np
 import polars as pl
@@ -37,6 +38,18 @@ from ..toolz.profile import (
     Profiler,
     pg_profile_enabled,
     ms_slower_then,
+)
+from ..log import (
+    get_logger,
+    get_console_log,
+)
+# for "time series processing"
+subsys: str = 'piker.tsp'
+
+log = get_logger(subsys)
+get_console_log = partial(
+    get_console_log,
+    name=subsys,
 )
 
 
@@ -349,3 +362,49 @@ def detect_price_gaps(
     #     (pl.col(time_col) - pl.col(f'{time_col}_previous')).alias('diff'),
     # ])
     ...
+
+
+def dedupe(src_df: pl.DataFrame) -> tuple[
+    pl.DataFrame,  # with dts
+    pl.DataFrame,  # gaps
+    pl.DataFrame,  # with deduplicated dts (aka gap/repeat removal)
+    bool,
+]:
+    '''
+    Check for time series gaps and if found
+    de-duplicate any datetime entries, check for
+    a frame height diff and return the newly
+    dt-deduplicated frame.
+
+    '''
+    df: pl.DataFrame = with_dts(src_df)
+    gaps: pl.DataFrame = detect_time_gaps(df)
+    if not gaps.is_empty():
+
+        # remove duplicated datetime samples/sections
+        deduped: pl.DataFrame = dedup_dt(df)
+        deduped_gaps = detect_time_gaps(deduped)
+
+        log.warning(
+            f'Gaps found:\n{gaps}\n'
+            f'deduped Gaps found:\n{deduped_gaps}'
+        )
+        # TODO: rewrite this in polars and/or convert to
+        # ndarray to detect and remove?
+        # null_gaps = detect_null_time_gap()
+
+        diff: int = (
+            df.height
+            -
+            deduped.height
+        )
+        was_deduped: bool = False
+        if diff:
+            was_deduped: bool = True
+
+        return (
+            df,
+            gaps,
+            deduped,
+            was_deduped,
+        )
