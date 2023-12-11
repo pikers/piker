@@ -260,22 +260,8 @@ def iter_dfs_from_shms(fqme: str) -> Generator[
         assert not opened
         ohlcv = shm.array
 
-        start = time.time()
-
-        # XXX: thanks to this SO answer for this conversion tip:
-        # https://stackoverflow.com/a/72054819
-        df = pl.DataFrame({
-            field_name: ohlcv[field_name]
-            for field_name in ohlcv.dtype.fields
-        })
-        delay: float = round(
-            time.time() - start,
-            ndigits=6,
-        )
-        log.info(
-            f'numpy -> polars conversion took {delay} secs\n'
-            f'polars df: {df}'
-        )
+        from .nativedb import np2pl
+        df: pl.DataFrame = np2pl(ohlcv)
 
         yield (
             shmfile,
@@ -315,7 +301,6 @@ def ldshm(
                     raise ValueError(
                         f'Something is wrong with time period for {shm}:\n{times}'
                     )
-
 
                 # over-write back to shm?
                 df: pl.DataFrame  # with dts

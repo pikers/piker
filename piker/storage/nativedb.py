@@ -65,44 +65,16 @@ from pendulum import (
 )
 
 from piker import config
-from piker.data import def_iohlcv_fields
-from piker.data import ShmArray
+from piker.data import (
+    def_iohlcv_fields,
+    ShmArray,
+    tsp,
+)
 from piker.log import get_logger
 from . import TimeseriesNotFound
 
 
 log = get_logger('storage.nativedb')
-
-
-# NOTE: thanks to this SO answer for the below conversion routines
-# to go from numpy struct-arrays to polars dataframes and back:
-# https://stackoverflow.com/a/72054819
-def np2pl(array: np.ndarray) -> pl.DataFrame:
-    return pl.DataFrame({
-        field_name: array[field_name]
-        for field_name in array.dtype.fields
-    })
-
-
-def pl2np(
-    df: pl.DataFrame,
-    dtype: np.dtype,
-
-) -> np.ndarray:
-
-    # Create numpy struct array of the correct size and dtype
-    # and loop through df columns to fill in array fields.
-    array = np.empty(
-        df.height,
-        dtype,
-    )
-    for field, col in zip(
-        dtype.fields,
-        df.columns,
-    ):
-        array[field] = df.get_column(col).to_numpy()
-
-    return array
 
 
 def detect_period(shm: ShmArray) -> float:
@@ -290,7 +262,7 @@ class NativeStorageClient:
 
         # TODO: filter by end and limit inputs
         # times: pl.Series = df['time']
-        array: np.ndarray = pl2np(
+        array: np.ndarray = tsp.pl2np(
             df,
             dtype=np.dtype(def_iohlcv_fields),
         )
@@ -326,7 +298,7 @@ class NativeStorageClient:
             datadir=self._datadir,
         )
         if isinstance(ohlcv, np.ndarray):
-            df: pl.DataFrame = np2pl(ohlcv)
+            df: pl.DataFrame = tsp.np2pl(ohlcv)
         else:
             df = ohlcv
 

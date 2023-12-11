@@ -28,6 +28,7 @@ from math import (
     ceil,
     floor,
 )
+import time
 from typing import Literal
 
 import numpy as np
@@ -408,3 +409,51 @@ def dedupe(src_df: pl.DataFrame) -> tuple[
             deduped,
             was_deduped,
         )
+
+
+# NOTE: thanks to this SO answer for the below conversion routines
+# to go from numpy struct-arrays to polars dataframes and back:
+# https://stackoverflow.com/a/72054819
+def np2pl(array: np.ndarray) -> pl.DataFrame:
+    start = time.time()
+
+    # XXX: thanks to this SO answer for this conversion tip:
+    # https://stackoverflow.com/a/72054819
+    df = pl.DataFrame({
+        field_name: array[field_name]
+        for field_name in array.dtype.fields
+    })
+    delay: float = round(
+        time.time() - start,
+        ndigits=6,
+    )
+    log.info(
+        f'numpy -> polars conversion took {delay} secs\n'
+        f'polars df: {df}'
+    )
+    return df
+    # return pl.DataFrame({
+    #     field_name: array[field_name]
+    #     for field_name in array.dtype.fields
+    # })
+
+
+def pl2np(
+    df: pl.DataFrame,
+    dtype: np.dtype,
+
+) -> np.ndarray:
+
+    # Create numpy struct array of the correct size and dtype
+    # and loop through df columns to fill in array fields.
+    array = np.empty(
+        df.height,
+        dtype,
+    )
+    for field, col in zip(
+        dtype.fields,
+        df.columns,
+    ):
+        array[field] = df.get_column(col).to_numpy()
+
+    return array
