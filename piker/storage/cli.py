@@ -173,7 +173,7 @@ def dedupe(src_df: pl.DataFrame) -> tuple[
         )
         was_deduped: bool = False
         if diff:
-            deduped: bool = True
+            was_deduped: bool = True
 
         return (
             df,
