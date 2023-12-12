@@ -20,7 +20,7 @@ Order and trades endpoints for use with ``piker``'s EMS.
 """
 from __future__ import annotations
 from contextlib import ExitStack
-from collections import ChainMap
+# from collections import ChainMap
 from functools import partial
 from pprint import pformat
 import time

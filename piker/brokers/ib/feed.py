@@ -196,10 +196,8 @@ async def open_history_client(
                     f'mean: {mean}'
                 )
 
-            if (
-                out is None
-            ):
-                # could be trying to retreive bars over weekend
+            # could be trying to retreive bars over weekend
+            if out is None:
                 log.error(f"Can't grab bars starting at {end_dt}!?!?")
                 raise NoData(
                     f'{end_dt}',
@@ -213,7 +211,24 @@ async def open_history_client(
             ):
                 raise DataUnavailable(f'First timestamp is {head_dt}')
 
-            bars, bars_array, first_dt, last_dt = out
+            # also see return type for `get_bars()`
+            bars: ibis.objects.BarDataList
+            bars_array: np.ndarray
+            first_dt: datetime
+            last_dt: datetime
+            (
+                bars,
+                bars_array,
+                first_dt,
+                last_dt,
+            ) = out
+
+            # TODO: audit the sampling period here as well?
+            # timestep should always be at least as large as the
+            # period step.
+            # tdiff: np.ndarray = np.diff(bars_array['time'])
+            # if (tdiff < timeframe).any():
+            #     await tractor.pause()
 
             # volume cleaning since there's -ve entries,
             # wood luv to know what crookery that is..
