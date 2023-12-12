@@ -262,7 +262,7 @@ def with_dts(
 ) -> pl.DataFrame:
     '''
     Insert datetime (casted) columns to a (presumably) OHLC sampled
-    time series with an epoch-time column keyed by ``time_col``.
+    time series with an epoch-time column keyed by `time_col: str`.
 
     '''
     return df.with_columns([
@@ -270,7 +270,9 @@ def with_dts(
         pl.col(time_col).diff().alias('s_diff'),
         pl.from_epoch(pl.col(time_col)).alias('dt'),
     ]).with_columns([
-        pl.from_epoch(pl.col(f'{time_col}_prev')).alias('dt_prev'),
+        pl.from_epoch(
+            pl.col(f'{time_col}_prev')
+        ).alias('dt_prev'),
         pl.col('dt').diff().alias('dt_diff'),
     ]) #.with_columns(
         # pl.col('dt').diff().dt.days().alias('days_dt_diff'),
@@ -369,7 +371,7 @@ def dedupe(src_df: pl.DataFrame) -> tuple[
     pl.DataFrame,  # with dts
     pl.DataFrame,  # gaps
     pl.DataFrame,  # with deduplicated dts (aka gap/repeat removal)
-    bool,
+    int,  # len diff between input and deduped
 ]:
     '''
     Check for time series gaps and if found
@@ -380,36 +382,60 @@ def dedupe(src_df: pl.DataFrame) -> tuple[
     '''
     df: pl.DataFrame = with_dts(src_df)
     gaps: pl.DataFrame = detect_time_gaps(df)
-    if not gaps.is_empty():
 
-        # remove duplicated datetime samples/sections
-        deduped: pl.DataFrame = dedup_dt(df)
-        deduped_gaps = detect_time_gaps(deduped)
-
-        log.warning(
-            f'Gaps found:\n{gaps}\n'
-            f'deduped Gaps found:\n{deduped_gaps}'
-        )
-        # TODO: rewrite this in polars and/or convert to
-        # ndarray to detect and remove?
-        # null_gaps = detect_null_time_gap()
-
-        diff: int = (
-            df.height
-            -
-            deduped.height
-        )
-        was_deduped: bool = False
-        if diff:
-            was_deduped: bool = True
-
+    # if no gaps detected just return carbon copies
+    # and no len diff.
+    if gaps.is_empty():
         return (
             df,
             gaps,
-            deduped,
-            was_deduped,
+            df,
+            0,
         )
 
+    # remove duplicated datetime samples/sections
+    deduped: pl.DataFrame = dedup_dt(df)
+    deduped_gaps = detect_time_gaps(deduped)
+
+    diff: int = (
+        df.height
+        -
+        deduped.height
+    )
+    log.warning(
+        f'Gaps found:\n{gaps}\n'
+        f'deduped Gaps found:\n{deduped_gaps}'
+    )
+    # TODO: rewrite this in polars and/or convert to
+    # ndarray to detect and remove?
+    # null_gaps = detect_null_time_gap()
+
+    return (
+        df,
+        gaps,
+        deduped,
+        diff,
+    )
+
+
+def sort_diff(
+    src_df: pl.DataFrame,
+    col: str = 'time',
+
+) -> tuple[
+    pl.DataFrame,  # with dts
+    pl.DataFrame,  # sorted
+    list[int],  # indices of segments that are out-of-order
+]:
+    ser: pl.Series = src_df[col]
+
+    diff: pl.Series = ser.diff()
+    sortd: pl.DataFrame = ser.sort()
+    sortd_diff: pl.Series = sortd.diff()
+    i_step_diff = (diff != sortd_diff).arg_true()
+    if i_step_diff.len():
+        import pdbp
+        pdbp.set_trace()
 
 # NOTE: thanks to this SO answer for the below conversion routines
 # to go from numpy struct-arrays to polars dataframes and back:
