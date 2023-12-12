@@ -432,10 +432,6 @@ def np2pl(array: np.ndarray) -> pl.DataFrame:
         f'polars df: {df}'
     )
     return df
-    # return pl.DataFrame({
-    #     field_name: array[field_name]
-    #     for field_name in array.dtype.fields
-    # })
 
 
 def pl2np(
