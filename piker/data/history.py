@@ -59,9 +59,10 @@ from ._sampling import (
 from .tsp import (
     dedupe,
     get_null_segs,
+    iter_null_segs,
     sort_diff,
     Frame,
-    Seq,
+    # Seq,
 )
 from ..brokers._util import (
     DataUnavailable,
@@ -174,75 +175,71 @@ async def maybe_fill_null_segments(
 ) -> list[Frame]:
 
     frame: Frame = shm.array
-
-    null_segs: tuple | None = get_null_segs(
+    async for (
+        absi_start, absi_end,
+        fi_start, fi_end, 
+        start_t, end_t,
+        start_dt, end_dt,
+    ) in iter_null_segs(
         frame,
-        period=timeframe,
-    )
-    if null_segs:
-        absi_pairs_zsegs: list[list[float, float]]
-        izeros: Seq
-        zero_t: Frame
+        timeframe=timeframe,
+    ):
+
+        # XXX NOTE: ?if we get a badly ordered timestamp
+        # pair, immediately stop backfilling?
+        if (
+            start_dt
+            and end_dt < start_dt
+        ):
+            break
+
         (
-            absi_pairs_zsegs,
-            izeros,
-            zero_t,
-        ) = null_segs
+            array,
+            next_start_dt,
+            next_end_dt,
+        ) = await get_hist(
+            timeframe,
+            start_dt=start_dt,
+            end_dt=end_dt,
+        )
 
-        absi_first: int = frame[0]['index']
-        for absi_start, absi_end in absi_pairs_zsegs:
-            # await tractor.pause()
-            fi_start = absi_start - absi_first
-            fi_end = absi_end - absi_first
-            start_row: Seq = frame[fi_start]
-            end_row: Seq = frame[fi_end]
+        # XXX TODO: pretty sure if i plot tsla, btcusdt.binance
+        # and mnq.cme.ib this causes a Qt crash XXDDD
 
-            start_t: float = start_row['time']
-            end_t: float = end_row['time']
+        # make sure we don't overrun the buffer start
+        len_to_push: int = min(absi_end, array.size)
+        to_push: np.ndarray = array[-len_to_push:]
 
-            start_dt = from_timestamp(start_t)
-            end_dt = from_timestamp(end_t)
+        await shm_push_in_between(
+            shm,
+            to_push,
+            prepend_index=absi_end,
+            update_start_on_prepend=False,
+        )
+        # TODO: UI side needs IPC event to update..
+        # - make sure the UI actually always handles
+        #  this update!
+        # - remember that in the display side, only refersh this
+        #   if the respective history is actually "in view".
+        #   loop
+        await sampler_stream.send({
+            'broadcast_all': {
 
-            # if we get a badly ordered timestamp
-            # pair, immediately stop backfilling.
-            if end_dt < start_dt:
-                break
+                # XXX NOTE XXX: see the
+                # `.ui._display.increment_history_view()` if block
+                # that looks for this info to FORCE a hard viz
+                # redraw!
+                'backfilling': (mkt.fqme, timeframe),
+            },
+        })
 
-            (
-                array,
-                next_start_dt,
-                next_end_dt,
-            ) = await get_hist(
-                timeframe,
-                start_dt=start_dt,
-                end_dt=end_dt,
-            )
+        await tractor.pause()
 
-            # XXX TODO: pretty sure if i plot tsla, btcusdt.binance
-            # and mnq.cme.ib this causes a Qt crash XXDDD
-
-            # make sure we don't overrun the buffer start
-            len_to_push: int = min(absi_end, array.size)
-            to_push: np.ndarray = array[-len_to_push:]
-
-            await shm_push_in_between(
-                shm,
-                to_push,
-                prepend_index=absi_end,
-                update_start_on_prepend=False,
-            )
-
-            # TODO: UI side needs IPC event to update..
-            # - make sure the UI actually always handles
-            #  this update!
-            # - remember that in the display side, only refersh this
-            #   if the respective history is actually "in view".
-            #   loop
-            await sampler_stream.send({
-                'broadcast_all': {
-                    'backfilling': (mkt.fqme, timeframe),
-                },
-            })
+        # TODO: interatively step through any remaining time gaps?
+        # if (
+        #     next_end_dt not in frame[
+        # ):
+        #     pass
 
         # RECHECK for more null-gaps
         frame: Frame = shm.array

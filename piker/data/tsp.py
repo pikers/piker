@@ -29,10 +29,17 @@ from math import (
     floor,
 )
 import time
-from typing import Literal
+from typing import (
+    Literal,
+    AsyncGenerator,
+)
 
 import numpy as np
 import polars as pl
+from pendulum import (
+    DateTime,
+    from_timestamp,
+)
 
 from ..toolz.profile import (
     Profiler,
@@ -223,7 +230,10 @@ def get_null_segs(
     col: str = 'time',
 
 ) -> tuple[
-    Seq,
+    # Seq,  # TODO: can we make it an array-type instead?
+    list[
+        list[int, int],
+    ],
     Seq,
     Frame
 ] | None:
@@ -285,13 +295,27 @@ def get_null_segs(
 
     # select out slice index pairs for each null-segment
     # portion detected throughout entire input frame.
+    # import pdbp; pdbp.set_trace()
+
+    # only one null-segment in entire frame?
     if not fi_zgaps.size:
+
+        # check for number null rows
         # TODO: use ndarray for this!
-        absi_zsegs = [[
-            absi_zeros[0], # - 1, # - ifirst,
-            # TODO: need the + 1 or no?
-            absi_zeros[-1] + 1, # - ifirst,
-        ]]
+        if absi_zeros.size > 1:
+            absi_zsegs = [[
+                absi_zeros[0], # - 1, # - ifirst,
+                # TODO: need the + 1 or no?
+                absi_zeros[-1] + 1, # - ifirst,
+            ]]
+        else:
+            absi_zsegs = [[
+                # absi_zeros[0] + 1,
+                # see `get_hist()` in backend, should ALWAYS be
+                # able to handle a `start_dt=None`!
+                None,
+                absi_zeros[0] + 1,
+            ]]
     else:
         absi_zsegs.append([
             absi_zeros[0] - 1, # - ifirst,
@@ -305,15 +329,12 @@ def get_null_segs(
         ) in enumerate(zip(
             fi_zgaps,
             fi_zseg_start_rows,
-            # fi_zgaps,
-            # start=1,
         )):
             assert (zseg_start_row == zero_t[fi]).all()
-
             absi: int = zseg_start_row['index'][0]
             # row = zero_t[fi]
             # absi_pre_zseg = row['index'][0] - 1
-            absi_pre_zseg = absi - 1
+            # absi_pre_zseg = absi - 1
 
             if i > 0:
                 prev_zseg_row = zero_t[fi - 1]
@@ -330,12 +351,74 @@ def get_null_segs(
                 assert end
                 assert start < end
 
-            # import pdbp; pdbp.set_trace()
     return (
         absi_zsegs,  # start indices of null
         absi_zeros,
         zero_t,
     )
+
+
+async def iter_null_segs(
+    frame: Frame,
+    timeframe: float,
+) -> AsyncGenerator[
+    tuple[
+        int, int,
+        int, int,
+        float, float,
+        float, float,
+
+        # Seq,  # TODO: can we make it an array-type instead?
+        # list[
+        #     list[int, int],
+        # ],
+        # Seq,
+        # Frame
+    ],
+    None,
+]:
+    if null_segs := get_null_segs(
+        frame,
+        period=timeframe,
+    ):
+        absi_pairs_zsegs: list[list[float, float]]
+        izeros: Seq
+        zero_t: Frame
+        (
+            absi_pairs_zsegs,
+            izeros,
+            zero_t,
+        ) = null_segs
+
+        absi_first: int = frame[0]['index']
+        for (
+            absi_start,
+            absi_end,
+        ) in absi_pairs_zsegs:
+
+            fi_end: int = absi_end - absi_first
+            end_row: Seq = frame[fi_end]
+            end_t: float = end_row['time']
+            end_dt: DateTime = from_timestamp(end_t)
+
+            if absi_start is not None:
+                fi_start: int = absi_start - absi_first
+                start_row: Seq = frame[fi_start]
+                start_t: float = start_row['time']
+                start_dt: DateTime = from_timestamp(start_t)
+
+            else:
+                fi_start = None
+                start_row = None
+                start_t = None
+                start_dt = None
+
+            yield (
+                absi_start, absi_end,  # abs indices
+                fi_start, fi_end,  # relative "frame" indices
+                start_t, end_t,
+                start_dt, end_dt,
+            )
 
 
 def with_dts(
