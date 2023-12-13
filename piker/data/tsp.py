@@ -34,7 +34,6 @@ from typing import Literal
 import numpy as np
 import polars as pl
 
-from ._sharedmem import ShmArray
 from ..toolz.profile import (
     Profiler,
     pg_profile_enabled,
@@ -52,6 +51,14 @@ get_console_log = partial(
     get_console_log,
     name=subsys,
 )
+
+# NOTE: union type-defs to handle generic `numpy` and `polars` types
+# side-by-side Bo
+# |_ TODO: schema spec typing?
+#   -[ ] nptyping!
+#   -[ ] wtv we can with polars?
+Frame = pl.DataFrame | np.ndarray
+Seq = pl.Series | np.ndarray
 
 
 def slice_from_time(
@@ -209,51 +216,126 @@ def slice_from_time(
     return read_slc
 
 
-def detect_null_time_gap(
-    shm: ShmArray,
+def get_null_segs(
+    frame: Frame,
+    period: float,  # sampling step in seconds
     imargin: int = 1,
+    col: str = 'time',
 
-) -> tuple[float, float] | None:
+) -> tuple[
+    Seq,
+    Seq,
+    Frame
+] | None:
     '''
-    Detect if there are any zero-epoch stamped rows in
-    the presumed 'time' field-column.
+    Detect if there are any zero(-epoch stamped) valued
+    rows in for the provided `col: str` column; by default
+    presume the 'time' field/column.
 
-    Filter to the gap and return a surrounding index range.
+    Filter to all such zero (time) segments and return
+    the corresponding frame zeroed segment's,
 
-    NOTE: for now presumes only ONE gap XD
+      - gap absolute (in buffer terms) indices-endpoints as
+        `absi_zsegs`
+      - abs indices of all rows with zeroed `col` values as `absi_zeros`
+      - the corresponding frame's row-entries (view) which are
+        zeroed for the `col` as `zero_t`
 
     '''
-    # ensure we read buffer state only once so that ShmArray rt
+    # TODO: remove this?
+    # NOTE: ensure we read buffer state only once so that ShmArray rt
     # circular-buffer updates don't cause a indexing/size mismatch.
-    array: np.ndarray = shm.array
+    # frame: np.ndarray = shm.array
 
-    zero_pred: np.ndarray = array['time'] == 0
-    zero_t: np.ndarray = array[zero_pred]
+    times: Seq = frame['time']
+    zero_pred: Seq = (times == 0)
 
-    if zero_t.size:
-        istart, iend = zero_t['index'][[0, -1]]
-        start, end = shm._array['time'][
-            [istart - imargin, iend + imargin]
-        ]
-        return (
-            istart - imargin,
-            start,
-            end,
-            iend + imargin,
+    if isinstance(frame, np.ndarray):
+        tis_zeros: int = zero_pred.any()
+    else:
+        tis_zeros: int = zero_pred.any()
+
+    if not tis_zeros:
+        return None
+
+    absi_zsegs: list[list[int, int]] = []
+
+    if isinstance(frame, np.ndarray):
+        # ifirst: int = frame[0]['index']
+        zero_t: np.ndarray = frame[zero_pred]
+
+        absi_zeros = zero_t['index']
+        # relative frame-indexes of zeros
+        # fizeros = np.ndarray = zero_t['index'] - ifirst
+        absi_zdiff: np.ndarray = np.diff(absi_zeros)
+        fi_zgaps = np.argwhere(
+            absi_zdiff > 1
+            # OR null / inf?
+            # OR is 0? for first zero-row entry?
         )
+        fi_zseg_start_rows = zero_t[fi_zgaps]
 
-    return None
+    else:  # pl.DataFrame case
+        izeros: pl.Series = zero_pred.arg_true()
+        zero_t: pl.DataFrame = frame[izeros]
 
+        absi_zeros = zero_t['index']
+        absi_zdiff: pl.Series = absi_zeros.diff()
+        fi_zgaps = (absi_zdiff > 1).arg_true()
 
-t_unit: Literal = Literal[
-    'days',
-    'hours',
-    'minutes',
-    'seconds',
-    'miliseconds',
-    'microseconds',
-    'nanoseconds',
-]
+    # select out slice index pairs for each null-segment
+    # portion detected throughout entire input frame.
+    if not fi_zgaps.size:
+        # TODO: use ndarray for this!
+        absi_zsegs = [[
+            absi_zeros[0], # - 1, # - ifirst,
+            # TODO: need the + 1 or no?
+            absi_zeros[-1] + 1, # - ifirst,
+        ]]
+    else:
+        absi_zsegs.append([
+            absi_zeros[0] - 1, # - ifirst,
+            None,
+        ])
+
+        # TODO: can we do it with vec ops?
+        for i, (
+            fi,
+            zseg_start_row,
+        ) in enumerate(zip(
+            fi_zgaps,
+            fi_zseg_start_rows,
+            # fi_zgaps,
+            # start=1,
+        )):
+            assert (zseg_start_row == zero_t[fi]).all()
+
+            absi: int = zseg_start_row['index'][0]
+            # row = zero_t[fi]
+            # absi_pre_zseg = row['index'][0] - 1
+            absi_pre_zseg = absi - 1
+
+            if i > 0:
+                prev_zseg_row = zero_t[fi - 1]
+                absi_post_zseg = prev_zseg_row['index'][0] + 1
+                absi_zsegs[i - 1][1] = absi_post_zseg
+
+                if (i + 1) < fi_zgaps.size:
+                    absi_zsegs.append([
+                        absi,
+                        None,
+                    ])
+        else:
+            for start, end in absi_zsegs:
+                assert end
+                assert start < end
+
+            # import pdbp; pdbp.set_trace()
+    return (
+        absi_zsegs,  # start indices of null
+        absi_zeros,
+        zero_t,
+    )
 
 
 def with_dts(
@@ -290,6 +372,17 @@ def dedup_dt(
         subset=['dt'],
         maintain_order=True,
     )
+
+
+t_unit: Literal = Literal[
+    'days',
+    'hours',
+    'minutes',
+    'seconds',
+    'miliseconds',
+    'microseconds',
+    'nanoseconds',
+]
 
 
 def detect_time_gaps(
@@ -406,10 +499,6 @@ def dedupe(src_df: pl.DataFrame) -> tuple[
         f'Gaps found:\n{gaps}\n'
         f'deduped Gaps found:\n{deduped_gaps}'
     )
-    # TODO: rewrite this in polars and/or convert to
-    # ndarray to detect and remove?
-    # null_gaps = detect_null_time_gap()
-
     return (
         df,
         gaps,
@@ -428,14 +517,19 @@ def sort_diff(
     list[int],  # indices of segments that are out-of-order
 ]:
     ser: pl.Series = src_df[col]
-
-    diff: pl.Series = ser.diff()
     sortd: pl.DataFrame = ser.sort()
+    diff: pl.Series = ser.diff()
+
     sortd_diff: pl.Series = sortd.diff()
     i_step_diff = (diff != sortd_diff).arg_true()
-    if i_step_diff.len():
-        import pdbp
-        pdbp.set_trace()
+    frame_reorders: int = i_step_diff.len()
+    if frame_reorders:
+        log.warn(
+            f'Resorted frame on col: {col}\n'
+            f'{frame_reorders}'
+
+        )
+        # import pdbp; pdbp.set_trace()
 
 # NOTE: thanks to this SO answer for the below conversion routines
 # to go from numpy struct-arrays to polars dataframes and back:
