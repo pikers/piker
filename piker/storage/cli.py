@@ -99,6 +99,18 @@ def ls(
     trio.run(query_all)
 
 
+# TODO: like ls but takes in a pattern and matches
+# @store.command()
+# def search(
+#     patt: str,
+#     backends: list[str] = typer.Argument(
+#         default=None,
+#         help='Storage backends to query, default is all.'
+#     ),
+# ):
+#     ...
+
+
 @store.command()
 def delete(
     symbols: list[str],
@@ -189,10 +201,10 @@ def anal(
                 df,
                 gaps,
                 deduped,
-                shortened,
+                diff,
             ) = tsp.dedupe(shm_df)
 
-            if shortened:
+            if diff:
                 await client.write_ohlcv(
                     fqme,
                     ohlcv=deduped,
@@ -260,8 +272,8 @@ def iter_dfs_from_shms(fqme: str) -> Generator[
         assert not opened
         ohlcv = shm.array
 
-        from .nativedb import np2pl
-        df: pl.DataFrame = np2pl(ohlcv)
+        from ..data import tsp
+        df: pl.DataFrame = tsp.np2pl(ohlcv)
 
         yield (
             shmfile,
@@ -273,7 +285,6 @@ def iter_dfs_from_shms(fqme: str) -> Generator[
 @store.command()
 def ldshm(
     fqme: str,
-
     write_parquet: bool = False,
 
 ) -> None:
@@ -309,7 +320,7 @@ def ldshm(
                     df,
                     gaps,
                     deduped,
-                    was_dded,
+                    diff,
                 ) = tsp.dedupe(shm_df)
 
                 # TODO: maybe only optionally enter this depending
