@@ -342,7 +342,6 @@ class NativeStorageClient:
         )
         return path
 
-
     async def write_ohlcv(
         self,
         fqme: str,
