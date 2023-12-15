@@ -248,25 +248,27 @@ async def increment_history_view(
             # - samplerd could emit the actual update range via
             #   tuple and then we only enter the below block if that
             #   range is detected as in-view?
-            if (
-                (bf_wut := msg.get('backfilling', False))
-            ):
-                viz_name, timeframe = bf_wut
-                if (
+            match msg:
+                case {
+                    'backfilling': (viz_name, timeframe),
+                } if (
                     viz_name == name
-
+                ):
+                    log.warning(
+                        f'Forcing HARD REDRAW:\n'
+                        f'name: {name}\n'
+                        f'timeframe: {timeframe}\n'
+                    )
                     # TODO: only allow this when the data is IN VIEW!
                     # also, we probably can do this more efficiently
                     # / smarter by only redrawing the portion of the
                     # path necessary?
-                    and False
-                ):
-                    log.info(f'Forcing hard redraw -> {name}@{timeframe}')
-                    match timeframe:
-                        case 60:
-                            hist_viz.update_graphics(force_redraw=True)
-                        case 1:
-                            viz.update_graphics(force_redraw=True)
+                    {
+                        60: hist_viz,
+                        1: viz,
+                    }[timeframe].update_graphics(
+                        force_redraw=True
+                    )
 
             # check if slow chart needs an x-domain shift and/or
             # y-range resize.
