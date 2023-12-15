@@ -41,7 +41,6 @@ from typing import (
 import wsproto
 from uuid import uuid4
 
-from rapidfuzz import process as fuzzy
 from trio_typing import TaskStatus
 import asks
 from bidict import bidict
@@ -416,8 +415,7 @@ class Client:
             await self.get_mkt_pairs()
             assert self._pairs, '`Client.get_mkt_pairs()` was never called!?'
 
-
-        matches: dict[str, Pair] = match_from_pairs(
+        matches: dict[str, KucoinMktPair] = match_from_pairs(
             pairs=self._pairs,
             # query=pattern.upper(),
             query=pattern.upper(),
