@@ -401,7 +401,15 @@ class Client:
         # => we recursively call this method until we get at least
         # as many bars such that they sum in aggregate to the the
         # desired total time (duration) at most.
-        if end_dt:
+        # XXX XXX XXX
+        # WHY DID WE EVEN NEED THIS ORIGINALLY!?
+        # XXX XXX XXX
+        # - if you query over a gap and get no data
+        #   that may short circuit the history 
+        if (
+            end_dt
+            and False
+        ):
             nparr: np.ndarray = bars_to_np(bars)
             times: np.ndarray = nparr['time']
             first: float = times[0]
@@ -410,6 +418,7 @@ class Client:
             if (
                 # len(bars) * sample_period_s) < dt_duration.in_seconds()
                 tdiff < dt_duration.in_seconds()
+                # and False
             ):
                 end_dt: DateTime = from_timestamp(first)
                 log.warning(
@@ -859,6 +868,9 @@ class Client:
                         timeout=timeout,
                     )
                 except TimeoutError:
+                    import pdbp
+                    pdbp.set_trace()
+
                     if raise_on_timeout:
                         raise
                     return None
