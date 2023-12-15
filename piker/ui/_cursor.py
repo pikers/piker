@@ -207,9 +207,10 @@ class ContentsLabel(pg.LabelItem):
         # this being "html" is the dumbest shit :eyeroll:
 
         self.setText(
-            "<b>i</b>:{index}<br/>"
+            "<b>i_arr</b>:{index}<br/>"
             # NB: these fields must be indexed in the correct order via
             # the slice syntax below.
+            "<b>i_shm</b>:{}<br/>"
             "<b>epoch</b>:{}<br/>"
             "<b>O</b>:{}<br/>"
             "<b>H</b>:{}<br/>"
@@ -219,6 +220,7 @@ class ContentsLabel(pg.LabelItem):
             # "<b>wap</b>:{}".format(
                 *array[ix][
                     [
+                        'index',
                         'time',
                         'open',
                         'high',
