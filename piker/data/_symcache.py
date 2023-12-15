@@ -31,6 +31,8 @@ from pathlib import Path
 from pprint import pformat
 from typing import (
     Any,
+    Sequence,
+    Hashable,
     TYPE_CHECKING,
 )
 from types import ModuleType
@@ -128,8 +130,8 @@ class SymbologyCache(Struct):
           - `.get_mkt_pairs()`: returning a table of pair-`Struct`
             types, custom defined by the particular backend.
 
-        AND, the required `.get_mkt_info()` module-level endpoint which
-        maps `fqme: str` -> `MktPair`s.
+        AND, the required `.get_mkt_info()` module-level endpoint
+        which maps `fqme: str` -> `MktPair`s.
 
         These tables are then used to fill out the `.assets`, `.pairs` and
         `.mktmaps` tables on this cache instance, respectively.
@@ -500,7 +502,7 @@ def match_from_pairs(
     )
 
     # pop and repack pairs in output dict
-    matched_pairs: dict[str, Pair] = {}
+    matched_pairs: dict[str, Struct] = {}
     for item in matches:
         pair_key: str = item[0]
         matched_pairs[pair_key] = pairs[pair_key]
