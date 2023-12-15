@@ -21,8 +21,6 @@ Storage middle-ware CLIs.
 from __future__ import annotations
 from pathlib import Path
 import time
-from typing import Generator
-# from typing import TYPE_CHECKING
 
 import polars as pl
 import numpy as np
@@ -37,14 +35,11 @@ from piker.service import open_piker_runtime
 from piker.cli import cli
 from piker.config import get_conf_dir
 from piker.data import (
-    maybe_open_shm_array,
-    def_iohlcv_fields,
     ShmArray,
     tsp,
 )
 from piker.data.history import (
-    _default_hist_size,
-    _default_rt_size,
+    iter_dfs_from_shms,
 )
 from . import (
     log,
@@ -190,6 +185,13 @@ def anal(
             )
             assert first_dt < last_dt
 
+            null_segs: tuple = tsp.get_null_segs(
+                frame=history,
+                period=period,
+            )
+            if null_segs:
+                await tractor.pause()
+
             shm_df: pl.DataFrame = await client.as_df(
                 fqme,
                 period,
@@ -204,6 +206,7 @@ def anal(
                 diff,
             ) = tsp.dedupe(shm_df)
 
+
             if diff:
                 await client.write_ohlcv(
                     fqme,
@@ -217,69 +220,6 @@ def anal(
             await tractor.pause()
 
     trio.run(main)
-
-
-def iter_dfs_from_shms(fqme: str) -> Generator[
-    tuple[Path, ShmArray, pl.DataFrame],
-    None,
-    None,
-]:
-    # shm buffer size table based on known sample rates
-    sizes: dict[str, int] = {
-        'hist': _default_hist_size,
-        'rt': _default_rt_size,
-    }
-
-    # load all detected shm buffer files which have the
-    # passed FQME pattern in the file name.
-    shmfiles: list[Path] = []
-    shmdir = Path('/dev/shm/')
-
-    for shmfile in shmdir.glob(f'*{fqme}*'):
-        filename: str = shmfile.name
-
-        # skip index files
-        if (
-            '_first' in filename
-            or '_last' in filename
-        ):
-            continue
-
-        assert shmfile.is_file()
-        log.debug(f'Found matching shm buffer file: {filename}')
-        shmfiles.append(shmfile)
-
-    for shmfile in shmfiles:
-
-        # lookup array buffer size based on file suffix
-        # being either .rt or .hist
-        key: str = shmfile.name.rsplit('.')[-1]
-
-        # skip FSP buffers for now..
-        if key not in sizes:
-            continue
-
-        size: int = sizes[key]
-
-        # attach to any shm buffer, load array into polars df,
-        # write to local parquet file.
-        shm, opened = maybe_open_shm_array(
-            key=shmfile.name,
-            size=size,
-            dtype=def_iohlcv_fields,
-            readonly=True,
-        )
-        assert not opened
-        ohlcv = shm.array
-
-        from ..data import tsp
-        df: pl.DataFrame = tsp.np2pl(ohlcv)
-
-        yield (
-            shmfile,
-            shm,
-            df,
-        )
 
 
 @store.command()
@@ -307,8 +247,8 @@ def ldshm(
 
                 # compute ohlc properties for naming
                 times: np.ndarray = shm.array['time']
-                secs: float = times[-1] - times[-2]
-                if secs < 1.:
+                period_s: float = times[-1] - times[-2]
+                if period_s < 1.:
                     raise ValueError(
                         f'Something is wrong with time period for {shm}:\n{times}'
                     )
@@ -323,17 +263,22 @@ def ldshm(
                     diff,
                 ) = tsp.dedupe(shm_df)
 
+                null_segs: tuple = tsp.get_null_segs(
+                    frame=shm.array,
+                    period=period_s,
+                )
+
                 # TODO: maybe only optionally enter this depending
                 # on some CLI flags and/or gap detection?
-                if (
-                    not gaps.is_empty()
-                    or secs > 2
-                ):
+                if not gaps.is_empty():
+                    await tractor.pause()
+
+                if null_segs:
                     await tractor.pause()
 
                 # write to parquet file?
                 if write_parquet:
-                    timeframe: str = f'{secs}s'
+                    timeframe: str = f'{period_s}s'
 
                     datadir: Path = get_conf_dir() / 'nativedb'
                     if not datadir.is_dir():

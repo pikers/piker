@@ -322,10 +322,16 @@ def get_null_segs(
                 # see `get_hist()` in backend, should ALWAYS be
                 # able to handle a `start_dt=None`!
                 # None,
-                absi_zeros[0] - 1,
+                max(
+                    absi_zeros[0] - 1,
+                    0,
+                ),
                 # NOTE: need the + 1 to guarantee we index "up to"
                 # the next non-null row-datum.
-                absi_zeros[-1] + 1,
+                min(
+                    absi_zeros[-1] + 1,
+                    frame['index'][-1],
+                ),
             ]]
         else:
             # XXX EDGE CASE: only one null-datum found so
@@ -483,6 +489,10 @@ def iter_null_segs(
             start_row: Seq = frame[fi_start]
             start_t: float = start_row['time']
             start_dt: DateTime = from_timestamp(start_t)
+
+        if absi_start < 0:
+            import pdbp
+            pdbp.set_trace()
 
         yield (
             absi_start, absi_end,  # abs indices
