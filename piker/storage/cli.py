@@ -1,5 +1,5 @@
 # piker: trading gear for hackers
-# Copyright (C) 2018-present  Tyler Goodlet (in stewardship of piker0)
+# Copyright (C) 2018-present  Tyler Goodlet (in stewardship of pikers)
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -36,11 +36,8 @@ from piker.cli import cli
 from piker.config import get_conf_dir
 from piker.data import (
     ShmArray,
-    tsp,
 )
-from piker.data.history import (
-    iter_dfs_from_shms,
-)
+from piker import tsp
 from . import (
     log,
 )
@@ -189,8 +186,8 @@ def anal(
                 frame=history,
                 period=period,
             )
-            if null_segs:
-                await tractor.pause()
+            # TODO: do tsp queries to backcend to fill i missing
+            # history and then prolly write it to tsdb!
 
             shm_df: pl.DataFrame = await client.as_df(
                 fqme,
@@ -206,18 +203,27 @@ def anal(
                 diff,
             ) = tsp.dedupe(shm_df)
 
+            write_edits: bool = True
+            if (
+                write_edits
+                and (
+                    diff
+                    or null_segs
+                )
+            ):
+                await tractor.pause()
 
-            if diff:
                 await client.write_ohlcv(
                     fqme,
                     ohlcv=deduped,
                     timeframe=period,
                 )
 
-            # TODO: something better with tab completion..
-            # is there something more minimal but nearly as
-            # functional as ipython?
-            await tractor.pause()
+            else:
+                # TODO: something better with tab completion..
+                # is there something more minimal but nearly as
+                # functional as ipython?
+                await tractor.pause()
 
     trio.run(main)
 
@@ -243,7 +249,7 @@ def ldshm(
             ),
         ):
             df: pl.DataFrame | None = None
-            for shmfile, shm, shm_df in iter_dfs_from_shms(fqme):
+            for shmfile, shm, shm_df in tsp.iter_dfs_from_shms(fqme):
 
                 # compute ohlc properties for naming
                 times: np.ndarray = shm.array['time']
@@ -270,10 +276,10 @@ def ldshm(
 
                 # TODO: maybe only optionally enter this depending
                 # on some CLI flags and/or gap detection?
-                if not gaps.is_empty():
-                    await tractor.pause()
-
-                if null_segs:
+                if (
+                    not gaps.is_empty()
+                    or null_segs
+                ):
                     await tractor.pause()
 
                 # write to parquet file?
