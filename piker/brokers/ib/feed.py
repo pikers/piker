@@ -943,6 +943,11 @@ async def stream_quotes(
             contract=con,
             raise_on_timeout=True,
         )
+        first_quote: dict = normalize(first_ticker)
+        log.info(
+            'Rxed init quote:\n'
+            f'{pformat(first_quote)}'
+        )
         cs: trio.CancelScope | None = None
         startup: bool = True
         while (

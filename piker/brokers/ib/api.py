@@ -843,6 +843,7 @@ class Client:
         self,
         contract: Contract,
         timeout: float = 1,
+        tries: int = 100,
         raise_on_timeout: bool = False,
 
     ) -> Ticker | None:
@@ -857,30 +858,30 @@ class Client:
         ready: ticker.TickerUpdateEvent = ticker.updateEvent
 
         # ensure a last price gets filled in before we deliver quote
+        timeouterr: Exception | None = None
         warnset: bool = False
-        for _ in range(100):
-            if isnan(ticker.last):
+        for _ in range(tries):
 
-                # wait for a first update(Event)
+            # wait for a first update(Event) indicatingn a 
+            # live quote feed.
+            if isnan(ticker.last):
                 try:
                     tkr = await asyncio.wait_for(
                         ready,
                         timeout=timeout,
                     )
-                except TimeoutError:
-                    import pdbp
-                    pdbp.set_trace()
+                    if tkr:
+                        break
+                except TimeoutError as err:
+                    timeouterr = err
+                    await asyncio.sleep(0.01)
+                    continue
 
-                    if raise_on_timeout:
-                        raise
-                    return None
-
-                if tkr:
-                    break
                 else:
                     if not warnset:
                         log.warning(
-                            f'Quote for {contract} timed out: market is closed?'
+                            f'Quote req timed out..maybe venue is closed?\n'
+                            f'{asdict(contract)}'
                         )
                         warnset = True
 
@@ -888,12 +889,19 @@ class Client:
                 log.info(f'Got first quote for {contract}')
                 break
         else:
+            if timeouterr and raise_on_timeout:
+                import pdbp
+                pdbp.set_trace()
+                raise timeouterr
+
             if not warnset:
                 log.warning(
                     f'Contract {contract} is not returning a quote '
                     'it may be outside trading hours?'
                 )
                 warnset = True
+
+            return None
 
         return ticker
 
