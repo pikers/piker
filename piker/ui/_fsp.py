@@ -181,7 +181,10 @@ async def open_fsp_sidepane(
 async def open_fsp_actor_cluster(
     names: list[str] = ['fsp_0', 'fsp_1'],
 
-) -> AsyncGenerator[int, dict[str, tractor.Portal]]:
+) -> AsyncGenerator[
+    int,
+    dict[str, tractor.Portal]
+]:
 
     from tractor._clustering import open_actor_cluster
 

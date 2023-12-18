@@ -31,7 +31,7 @@ import pendulum
 import pyqtgraph as pg
 
 from piker.types import Struct
-from ..data.tsp import slice_from_time
+from ..tsp import slice_from_time
 from ..log import get_logger
 from ..toolz import Profiler
 

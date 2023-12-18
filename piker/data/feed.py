@@ -69,7 +69,7 @@ from .validate import (
     FeedInit,
     validate_backend,
 )
-from .history import (
+from ..tsp import (
     manage_history,
 )
 from .ingest import get_ingestormod
@@ -407,7 +407,13 @@ async def allocate_persistent_feed(
         rt_shm.array['time'][1] = ts + 1
 
     elif hist_shm.array.size == 0:
-        raise RuntimeError(f'History (1m) Shm for {fqme} is empty!?')
+        for i in range(100):
+            await trio.sleep(0.1)
+            if hist_shm.array.size > 0:
+                break
+        else:
+            await tractor.pause()
+            raise RuntimeError(f'History (1m) Shm for {fqme} is empty!?')
 
     # wait the spawning parent task to register its subscriber
     # send-stream entry before we start the sample loop.

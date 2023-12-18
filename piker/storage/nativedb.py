@@ -56,8 +56,6 @@ from datetime import datetime
 from pathlib import Path
 import time
 
-# from bidict import bidict
-# import tractor
 import numpy as np
 import polars as pl
 from pendulum import (
@@ -65,10 +63,10 @@ from pendulum import (
 )
 
 from piker import config
+from piker import tsp
 from piker.data import (
     def_iohlcv_fields,
     ShmArray,
-    tsp,
 )
 from piker.log import get_logger
 from . import TimeseriesNotFound
