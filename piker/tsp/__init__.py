@@ -32,6 +32,7 @@ from __future__ import annotations
 from datetime import datetime
 from functools import partial
 from pathlib import Path
+from pprint import pformat
 from types import ModuleType
 from typing import (
     Callable,
@@ -53,25 +54,64 @@ import polars as pl
 from ..accounting import (
     MktPair,
 )
-from ._util import (
+from ..data._util import (
     log,
 )
-from ._sharedmem import (
+from ..data._sharedmem import (
     maybe_open_shm_array,
     ShmArray,
 )
-from ._source import def_iohlcv_fields
-from ._sampling import (
+from ..data._source import def_iohlcv_fields
+from ..data._sampling import (
     open_sample_stream,
 )
-from .tsp import (
-    dedupe,
+from ._anal import (
+
     get_null_segs,
     iter_null_segs,
-    sort_diff,
     Frame,
-    # Seq,
+    Seq,
+
+    # codec-ish
+    np2pl,
+    pl2np,
+
+    # `numpy` only
+    slice_from_time,
+
+    # `polars` specific
+    dedupe,
+    with_dts,
+    detect_time_gaps,
+    sort_diff,
+
+    # TODO:
+    detect_price_gaps
 )
+
+__all__: list[str] = [
+    'dedupe',
+    'get_null_segs',
+    'iter_null_segs',
+    'sort_diff',
+    'slice_from_time',
+    'Frame',
+    'Seq',
+
+    'np2pl',
+    'pl2np',
+
+    'slice_from_time',
+
+    'with_dts',
+    'detect_time_gaps',
+    'sort_diff',
+
+    # TODO:
+    'detect_price_gaps'
+]
+
+# TODO: break up all this shite into submods!
 from ..brokers._util import (
     DataUnavailable,
 )
@@ -252,35 +292,65 @@ async def maybe_fill_null_segments(
         and
         len(null_segs[-1])
     ):
-        await tractor.pause()
+        (
+            iabs_slices,
+            iabs_zero_rows,
+            zero_t,
+        ) = null_segs
+        log.warning(
+            f'{len(iabs_slices)} NULL TIME SEGMENTS DETECTED!\n'
+            f'{pformat(iabs_slices)}'
+        )
 
-    array = shm.array
-    zeros = array[array['low'] == 0]
-
-    # always backfill gaps with the earliest (price) datum's
-    # value to avoid the y-ranger including zeros and completely
-    # stretching the y-axis..
-    if 0 < zeros.size:
-        zeros[[
+        # TODO: always backfill gaps with the earliest (price) datum's
+        # value to avoid the y-ranger including zeros and completely
+        # stretching the y-axis..
+        # array: np.ndarray = shm.array
+        # zeros = array[array['low'] == 0]
+        ohlc_fields: list[str] = [
             'open',
             'high',
             'low',
             'close',
-        ]] = shm._array[zeros['index'][0] - 1]['close']
+        ]
 
-    # TODO: interatively step through any remaining
-    # time-gaps/null-segments and spawn piecewise backfiller
-    # tasks in a nursery?
-    # -[ ] not sure that's going to work so well on the ib
-    #  backend but worth a shot?
-    #  -[ ] mk new history connections to make it properly
-    #     parallel possible no matter the backend?
-    # -[ ] fill algo: do queries in alternating "latest, then
-    #    earliest, then latest.. etc?"
-    # if (
-    #     next_end_dt not in frame[
-    # ):
-    #     pass
+        for istart, istop in iabs_slices:
+
+            # get view into buffer for null-segment
+            gap: np.ndarray = shm._array[istart:istop]
+
+            # copy the oldest OHLC samples forward
+            gap[ohlc_fields] = shm._array[istart]['close']
+
+            start_t: float = shm._array[istart]['time']
+            t_diff: float = (istop - istart)*timeframe
+            gap['time'] = np.arange(
+                start=start_t,
+                stop=start_t + t_diff,
+                step=timeframe,
+            )
+
+            await sampler_stream.send({
+                'broadcast_all': {
+
+                    # XXX NOTE XXX: see the
+                    # `.ui._display.increment_history_view()` if block
+                    # that looks for this info to FORCE a hard viz
+                    # redraw!
+                    'backfilling': (mkt.fqme, timeframe),
+                },
+            })
+
+            # TODO: interatively step through any remaining
+            # time-gaps/null-segments and spawn piecewise backfiller
+            # tasks in a nursery?
+            # -[ ] not sure that's going to work so well on the ib
+            #  backend but worth a shot?
+            #  -[ ] mk new history connections to make it properly
+            #     parallel possible no matter the backend?
+            # -[ ] fill algo: do queries in alternating "latest, then
+            #    earliest, then latest.. etc?"
+            # await tractor.pause()
 
 
 async def start_backfill(
@@ -1252,8 +1322,8 @@ def iter_dfs_from_shms(
         assert not opened
         ohlcv = shm.array
 
-        from ..data import tsp
-        df: pl.DataFrame = tsp.np2pl(ohlcv)
+        from ._anal import np2pl
+        df: pl.DataFrame = np2pl(ohlcv)
 
         yield (
             shmfile,

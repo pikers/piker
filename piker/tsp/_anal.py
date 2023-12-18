@@ -319,9 +319,8 @@ def get_null_segs(
     if num_gaps < 1:
         if absi_zeros.size > 1:
             absi_zsegs = [[
-                # see `get_hist()` in backend, should ALWAYS be
-                # able to handle a `start_dt=None`!
-                # None,
+                # TODO: maybe mk these max()/min() limits func
+                # consts instead of called more then once?
                 max(
                     absi_zeros[0] - 1,
                     0,
@@ -359,7 +358,10 @@ def get_null_segs(
         # corresponding to the first zero-segment's row, we add it
         # manually here.
         absi_zsegs.append([
-            absi_zeros[0] - 1,
+            max(
+                absi_zeros[0] - 1,
+                0,
+            ),
             None,
         ])
 
@@ -400,14 +402,18 @@ def get_null_segs(
 
         else:
             if 0 < num_gaps < 2:
-                absi_zsegs[-1][1] = absi_zeros[-1] + 1
+                absi_zsegs[-1][1] = min(
+                    absi_zeros[-1] + 1,
+                    frame['index'][-1],
+                )
 
             iabs_first: int = frame['index'][0]
             for start, end in absi_zsegs:
+
                 ts_start: float = times[start - iabs_first]
                 ts_end: float = times[end - iabs_first]
                 if (
-                    ts_start == 0
+                    (ts_start == 0 and not start == 0)
                     or
                     ts_end == 0
                 ):
@@ -451,11 +457,13 @@ def iter_null_segs(
     ],
     None,
 ]:
-    if null_segs is None:
-        null_segs: tuple = get_null_segs(
+    if not (
+        null_segs := get_null_segs(
             frame,
             period=timeframe,
         )
+    ):
+        return
 
     absi_pairs_zsegs: list[list[float, float]]
     izeros: Seq
@@ -502,6 +510,7 @@ def iter_null_segs(
         )
 
 
+# TODO: move to ._pl_anal
 def with_dts(
     df: pl.DataFrame,
     time_col: str = 'time',
@@ -523,19 +532,6 @@ def with_dts(
     ]) #.with_columns(
         # pl.col('dt').diff().dt.days().alias('days_dt_diff'),
     # )
-
-
-def dedup_dt(
-    df: pl.DataFrame,
-) -> pl.DataFrame:
-    '''
-    Drop duplicate date-time rows (normally from an OHLC frame).
-
-    '''
-    return df.unique(
-        subset=['dt'],
-        maintain_order=True,
-    )
 
 
 t_unit: Literal = Literal[
@@ -651,7 +647,11 @@ def dedupe(src_df: pl.DataFrame) -> tuple[
         )
 
     # remove duplicated datetime samples/sections
-    deduped: pl.DataFrame = dedup_dt(df)
+    deduped: pl.DataFrame = df.unique(
+        subset=['dt'],
+        maintain_order=True,
+    )
+
     deduped_gaps = detect_time_gaps(deduped)
 
     diff: int = (
