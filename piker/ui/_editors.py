@@ -49,6 +49,7 @@ from ..log import get_logger
 
 if TYPE_CHECKING:
     from ._chart import GodWidget
+    from ._interaction import ChartView
 
 
 log = get_logger(__name__)
@@ -261,7 +262,7 @@ class SelectRect(QtWidgets.QGraphicsRectItem):
         super().__init__(0, 0, 1, 1)
 
         # self.rbScaleBox = QGraphicsRectItem(0, 0, 1, 1)
-        self.vb = viewbox
+        self.vb: ViewBox = viewbox
         self._chart: 'ChartPlotWidget' = None  # noqa
 
         # override selection box color
@@ -297,6 +298,19 @@ class SelectRect(QtWidgets.QGraphicsRectItem):
             'sigma: {std:.2f}',
         ]
 
+    def add_to_view(
+        self,
+        view: ChartView,
+    ) -> None:
+        '''
+        Self-defined view hookup impl.
+
+        '''
+        view.addItem(
+            self,
+            ignoreBounds=True,
+        )
+
     @property
     def chart(self) -> 'ChartPlotWidget':  # noqa
         return self._chart
@@ -324,21 +338,40 @@ class SelectRect(QtWidgets.QGraphicsRectItem):
                 self.vb.mapFromView(self._abs_top_right)
             )
 
-    def set_pos(
+    def set_scen_pos(
         self,
         p1: QPointF,
         p2: QPointF
+
     ) -> None:
-        """Set position of selection rect and accompanying label, move
-        label to match.
+        '''
+        Set position from scene coords of selection rect (normally
+        from mouse position) and accompanying label, move label to
+        match.
 
-        """
+        '''
+        # map to view coords
+        self.set_view_pos(
+            self.vb.mapToView(p1),
+            self.vb.mapToView(p2),
+        )
+
+    def set_view_pos(
+        self,
+        start_pos: QPointF,
+        end_pos: QPointF,
+
+    ) -> None:
+        '''
+        Set position from `ViewBox` coords (i.e. from the actual
+        data domain) of rect (and any accompanying label which is
+        moved to match).
+
+        '''
+        # https://doc.qt.io/qt-5/qgraphicsproxywidget.html
         if self._label_proxy is None:
-            # https://doc.qt.io/qt-5/qgraphicsproxywidget.html
-            self._label_proxy = self.vb.scene().addWidget(self._label)
-
-        start_pos = self.vb.mapToView(p1)
-        end_pos = self.vb.mapToView(p2)
+            self._label_proxy = self.vb.scene(
+            ).addWidget(self._label)
 
         # map to view coords and update area
         r = QtCore.QRectF(start_pos, end_pos)
@@ -398,8 +431,9 @@ class SelectRect(QtWidgets.QGraphicsRectItem):
         # self._label.show()
 
     def clear(self):
-        """Clear the selection box from view.
+        '''
+        Clear the selection box from view.
 
-        """
+        '''
         self._label.hide()
         self.hide()

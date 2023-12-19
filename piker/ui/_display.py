@@ -470,54 +470,64 @@ async def graphics_update_loop(
         if ds.hist_vars['i_last'] < ds.hist_vars['i_last_append']:
             await tractor.pause()
 
-    # main real-time quotes update loop
-    stream: tractor.MsgStream
-    async with feed.open_multi_stream() as stream:
-        assert stream
-        async for quotes in stream:
-            quote_period = time.time() - last_quote_s
-            quote_rate = round(
-                1/quote_period, 1) if quote_period > 0 else float('inf')
-            if (
-                quote_period <= 1/_quote_throttle_rate
+    try:
+        from . import _remote_ctl
+        _remote_ctl._dss = dss
 
-                # in the absolute worst case we shouldn't see more then
-                # twice the expected throttle rate right!?
-                # and quote_rate >= _quote_throttle_rate * 2
-                and quote_rate >= display_rate
-            ):
-                pass
-                # log.warning(f'High quote rate {mkt.fqme}: {quote_rate}')
-
-            last_quote_s = time.time()
-
-            for fqme, quote in quotes.items():
-                ds = dss[fqme]
-                ds.quotes = quote
-                rt_pi, hist_pi = pis[fqme]
-
-                # chart isn't active/shown so skip render cycle and
-                # pause feed(s)
+        # main real-time quotes update loop
+        stream: tractor.MsgStream
+        async with feed.open_multi_stream() as stream:
+            assert stream
+            async for quotes in stream:
+                quote_period = time.time() - last_quote_s
+                quote_rate = round(
+                    1/quote_period, 1) if quote_period > 0 else float('inf')
                 if (
-                    fast_chart.linked.isHidden()
-                    or not rt_pi.isVisible()
+                    quote_period <= 1/_quote_throttle_rate
+
+                    # in the absolute worst case we shouldn't see more then
+                    # twice the expected throttle rate right!?
+                    # and quote_rate >= _quote_throttle_rate * 2
+                    and quote_rate >= display_rate
                 ):
-                    print(f'{fqme} skipping update for HIDDEN CHART')
-                    fast_chart.pause_all_feeds()
-                    continue
+                    pass
+                    # log.warning(f'High quote rate {mkt.fqme}: {quote_rate}')
 
-                ic = fast_chart.view._in_interact
-                if ic:
-                    fast_chart.pause_all_feeds()
-                    print(f'{fqme} PAUSING DURING INTERACTION')
-                    await ic.wait()
-                    fast_chart.resume_all_feeds()
+                last_quote_s = time.time()
 
-                # sync call to update all graphics/UX components.
-                graphics_update_cycle(
-                    ds,
-                    quote,
-                )
+                for fqme, quote in quotes.items():
+                    ds = dss[fqme]
+                    ds.quotes = quote
+                    rt_pi, hist_pi = pis[fqme]
+
+                    # chart isn't active/shown so skip render cycle and
+                    # pause feed(s)
+                    if (
+                        fast_chart.linked.isHidden()
+                        or not rt_pi.isVisible()
+                    ):
+                        print(f'{fqme} skipping update for HIDDEN CHART')
+                        fast_chart.pause_all_feeds()
+                        continue
+
+                    ic = fast_chart.view._in_interact
+                    if ic:
+                        fast_chart.pause_all_feeds()
+                        print(f'{fqme} PAUSING DURING INTERACTION')
+                        await ic.wait()
+                        fast_chart.resume_all_feeds()
+
+                    # sync call to update all graphics/UX components.
+                    graphics_update_cycle(
+                        ds,
+                        quote,
+                    )
+
+    finally:
+        # XXX: cancel any remote annotation control ctxs
+        _remote_ctl._dss = None
+        for ctx in _remote_ctl._ctxs:
+            await ctx.cancel()
 
 
 def graphics_update_cycle(
@@ -1235,7 +1245,7 @@ async def display_symbol_data(
     fast from a cached watch-list.
 
     '''
-    sbar = godwidget.window.status_bar
+    # sbar = godwidget.window.status_bar
     # historical data fetch
     # brokermod = brokers.get_brokermod(provider)
 
@@ -1245,11 +1255,11 @@ async def display_symbol_data(
     #     group_key=loading_sym_key,
     # )
 
-    for fqme in fqmes:
-        loading_sym_key = sbar.open_status(
-            f'loading {fqme} ->',
-            group_key=True
-        )
+    # for fqme in fqmes:
+    #     loading_sym_key = sbar.open_status(
+    #         f'loading {fqme} ->',
+    #         group_key=True
+    #     )
 
     # (TODO: make this not so shit XD)
     # close group status once a symbol feed fully loads to view.
@@ -1422,7 +1432,7 @@ async def display_symbol_data(
                 start_fsp_displays,
                 rt_linked,
                 flume,
-                loading_sym_key,
+                # loading_sym_key,
                 loglevel,
             )
 

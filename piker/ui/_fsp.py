@@ -560,7 +560,7 @@ class FspAdmin:
         conf: dict,  # yeah probably dumb..
         loglevel: str = 'error',
 
-    ) -> (trio.Event, ChartPlotWidget):
+    ) -> trio.Event:
 
         flume, started = await self.start_engine_task(
             target,
@@ -927,7 +927,7 @@ async def start_fsp_displays(
 
     linked: LinkedSplits,
     flume: Flume,
-    group_status_key: str,
+    # group_status_key: str,
     loglevel: str,
 
 ) -> None:
@@ -974,21 +974,23 @@ async def start_fsp_displays(
             flume,
         ) as admin,
     ):
-        statuses = []
+        statuses: list[trio.Event] = []
         for target, conf in fsp_conf.items():
-            started = await admin.open_fsp_chart(
+            started: trio.Event = await admin.open_fsp_chart(
                 target,
                 conf,
             )
-            done = linked.window().status_bar.open_status(
-                f'loading fsp, {target}..',
-                group_key=group_status_key,
-            )
-            statuses.append((started, done))
+            # done = linked.window().status_bar.open_status(
+            #     f'loading fsp, {target}..',
+            #     group_key=group_status_key,
+            # )
+            # statuses.append((started, done))
+            statuses.append(started)
 
-        for fsp_loaded, status_cb in statuses:
+        # for fsp_loaded, status_cb in statuses:
+        for fsp_loaded in statuses:
             await fsp_loaded.wait()
             profiler(f'attached to fsp portal: {target}')
-            status_cb()
+            # status_cb()
 
     # blocks on nursery until all fsp actors complete

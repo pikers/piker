@@ -500,7 +500,11 @@ class ChartView(ViewBox):
 
         # add our selection box annotator
         self.select_box = SelectRect(self)
-        self.addItem(self.select_box, ignoreBounds=True)
+        self.select_box.add_to_view(self)
+        # self.addItem(
+        #     self.select_box,
+        #     ignoreBounds=True,
+        # )
 
         self.mode = None
         self.order_mode: bool = False
@@ -761,14 +765,17 @@ class ChartView(ViewBox):
                 # This is the final position in the drag
                 if ev.isFinish():
 
-                    self.select_box.mouse_drag_released(down_pos, pos)
+                    self.select_box.mouse_drag_released(
+                        down_pos,
+                        pos,
+                    )
 
                     # NOTE: think of this as a `.mouse_drag_release()`
                     # (bc HINT that's what i called the shit ass
                     # method that wrapped this call [yes, as a single
                     # fucking call] originally.. you bish, guille)
                     # Bo.. oraleeee
-                    self.select_box.set_pos(
+                    self.select_box.set_scen_pos(
                         down_pos,
                         pos,
                     )
@@ -786,7 +793,10 @@ class ChartView(ViewBox):
 
                 else:
                     print('drag finish?')
-                    self.select_box.set_pos(down_pos, pos)
+                    self.select_box.set_scen_pos(
+                        down_pos,
+                        pos,
+                    )
 
                     # update shape of scale box
                     # self.updateScaleBox(ev.buttonDownPos(), ev.pos())

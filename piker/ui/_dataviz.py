@@ -563,7 +563,8 @@ class Viz(Struct):
 
     def view_range(self) -> tuple[int, int]:
         '''
-        Return the start and stop x-indexes for the managed ``ViewBox``.
+        Return the start and stop x-indexes for the managed
+        ``ViewBox``.
 
         '''
         vr = self.plot.viewRect()

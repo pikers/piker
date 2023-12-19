@@ -56,8 +56,8 @@ _line_styles: dict[str, int] = {
 
 class FlowGraphic(pg.GraphicsObject):
     '''
-    Base class with minimal interface for `QPainterPath` implemented,
-    real-time updated "data flow" graphics.
+    Base class with minimal interface for `QPainterPath`
+    implemented, real-time updated "data flow" graphics.
 
     See subtypes below.
 
@@ -167,11 +167,12 @@ class FlowGraphic(pg.GraphicsObject):
         return None
 
     # XXX: due to a variety of weird jitter bugs and "smearing"
-    # artifacts when click-drag panning and viewing history time series,
-    # we offer this ctx-mngr interface to allow temporarily disabling
-    # Qt's graphics caching mode; this is now currently used from
-    # ``ChartView.start/signal_ic()`` methods which also disable the
-    # rt-display loop when the user is moving around a view.
+    # artifacts when click-drag panning and viewing history time
+    # series, we offer this ctx-mngr interface to allow temporarily
+    # disabling Qt's graphics caching mode; this is now currently
+    # used from ``ChartView.start/signal_ic()`` methods which also
+    # disable the rt-display loop when the user is moving around
+    # a view.
     @cm
     def reset_cache(self) -> None:
         try:
