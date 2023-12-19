@@ -763,6 +763,16 @@ class ChartView(ViewBox):
 
                     self.select_box.mouse_drag_released(down_pos, pos)
 
+                    # NOTE: think of this as a `.mouse_drag_release()`
+                    # (bc HINT that's what i called the shit ass
+                    # method that wrapped this call [yes, as a single
+                    # fucking call] originally.. you bish, guille)
+                    # Bo.. oraleeee
+                    self.select_box.set_pos(
+                        down_pos,
+                        pos,
+                    )
+
                     ax = QtCore.QRectF(down_pos, pos)
                     ax = self.childGroup.mapRectFromParent(ax)
 

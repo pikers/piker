@@ -315,24 +315,14 @@ class SelectRect(QtWidgets.QGraphicsRectItem):
         )
 
     def update_on_resize(self, vr, r):
-        """Re-position measure label on view range change.
+        '''
+        Re-position measure label on view range change.
 
-        """
+        '''
         if self._abs_top_right:
             self._label_proxy.setPos(
                 self.vb.mapFromView(self._abs_top_right)
             )
-
-    def mouse_drag_released(
-        self,
-        p1: QPointF,
-        p2: QPointF
-    ) -> None:
-        """Called on final button release for mouse drag with start and
-        end positions.
-
-        """
-        self.set_pos(p1, p2)
 
     def set_pos(
         self,
