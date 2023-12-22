@@ -228,5 +228,10 @@ def chart(
                 'loglevel': tractorloglevel,
                 'name': 'chart',
                 'registry_addrs': list(set(regaddrs)),
+                'enable_modules': [
+
+                    # remote data-view annotations Bo
+                    'piker.ui._remote_ctl',
+                ],
             },
         )

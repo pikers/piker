@@ -19,6 +19,7 @@ Storage middle-ware CLIs.
 
 """
 from __future__ import annotations
+# from datetime import datetime
 from pathlib import Path
 import time
 
@@ -253,7 +254,7 @@ def ldshm(
 
                 # compute ohlc properties for naming
                 times: np.ndarray = shm.array['time']
-                period_s: float = times[-1] - times[-2]
+                period_s: float = float(times[-1] - times[-2])
                 if period_s < 1.:
                     raise ValueError(
                         f'Something is wrong with time period for {shm}:\n{times}'
@@ -280,7 +281,82 @@ def ldshm(
                     not gaps.is_empty()
                     or null_segs
                 ):
-                    await tractor.pause()
+                    from piker.ui._remote_ctl import (
+                        open_annot_ctl,
+                        AnnotCtl,
+                    )
+                    annot_ctl: AnnotCtl
+                    async with open_annot_ctl() as annot_ctl:
+                        for i in range(gaps.height):
+
+                            row: pl.DataFrame = gaps[i]
+
+                            # TODO: can we eventually remove this
+                            # once we figure out why the epoch cols
+                            # don't match?
+                            iend: int = row['index'][0]
+                            # dt: datetime = row['dt'][0]
+                            # dt_prev: datetime = row['dt_prev'][0]
+
+                            # the gap's right-most bar's OPEN value
+                            # at that time (sample) step.
+                            # dt_end_t: float = dt.timestamp()
+
+                            # TODO: FIX HOW/WHY these aren't matching
+                            # and are instead off by 4hours (EST
+                            # vs. UTC?!?!)
+                            # end_t: float = row['time']
+                            # assert (
+                            #     dt.timestamp()
+                            #     ==
+                            #     end_t
+                            # )
+
+                            # the gap's left-most bar's CLOSE value
+                            # at that time (sample) step.
+
+                            prev_r: pl.DataFrame = df.filter(
+                                pl.col('index') == gaps[0]['index'] - 1
+                            )
+                            istart: int = prev_r['index'][0]
+                            # dt_start_t: float = dt_prev.timestamp()
+
+                            # start_t: float = prev_r['time']
+                            # assert (
+                            #     dt_start_t
+                            #     ==
+                            #     start_t
+                            # )
+
+                            # TODO: implement px-col width measure
+                            # and ensure at least as many px-cols
+                            # shown per rect as configured by user.
+                            gap_w: float = abs((iend - istart))
+                            # await tractor.pause()
+                            if gap_w < 6:
+                                margin: float = 6
+                                iend += margin
+                                istart -= margin
+
+                            ro: tuple[float, float] = (
+                                # dt_end_t,
+                                iend,
+                                row['open'][0],
+                            )
+                            lc: tuple[float, float] = (
+                                # dt_start_t,
+                                istart,
+                                prev_r['close'][0],
+                            )
+
+                            aid: int = await annot_ctl.add_rect(
+                                fqme=fqme,
+                                timeframe=period_s,
+                                start_pos=lc,
+                                end_pos=ro,
+                            )
+                            assert aid
+                            await tractor.pause()
 
                 # write to parquet file?
                 if write_parquet:
