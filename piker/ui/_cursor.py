@@ -272,10 +272,15 @@ class ContentsLabels:
         x_in: int,
 
     ) -> None:
-        for chart, name, label, update in self._labels:
+        for (
+            chart,
+            name,
+            label,
+            update,
+        )in self._labels:
 
             viz = chart.get_viz(name)
-            array = viz.shm.array
+            array: np.ndarray = viz.shm._array
             index = array[viz.index_field]
             start = index[0]
             stop = index[-1]
@@ -286,7 +291,7 @@ class ContentsLabels:
             ):
                 # out of range
                 print('WTF out of range?')
-                continue
+                # continue
 
             # call provided update func with data point
             try:
@@ -294,6 +299,7 @@ class ContentsLabels:
                 ix = np.searchsorted(index, x_in)
                 if ix > len(array):
                     breakpoint()
+
                 update(ix, array)
 
             except IndexError:
