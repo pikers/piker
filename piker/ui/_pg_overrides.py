@@ -24,8 +24,6 @@ view transforms.
 """
 import pyqtgraph as pg
 
-from ._axes import Axis
-
 
 def invertQTransform(tr):
     """Return a QTransform that is the inverse of *tr*.
@@ -52,6 +50,9 @@ def _do_overrides() -> None:
     # we don't care about potential fp issues inside Qt
     pg.functions.invertQTransform = invertQTransform
     pg.PlotItem = PlotItem
+
+    from ._axes import Axis
+    pg.Axis = Axis
 
     # enable "QPainterPathPrivate for faster arrayToQPath" from
     # https://github.com/pyqtgraph/pyqtgraph/pull/2324
@@ -234,7 +235,7 @@ class PlotItem(pg.PlotItem):
                 # ``ViewBox`` geometry bug.. where a gap for the
                 # 'bottom' axis is somehow left in?
                 # axis = pg.AxisItem(orientation=name, parent=self)
-                axis = Axis(
+                axis = pg.Axis(
                     self,
                     orientation=name,
                     parent=self,
