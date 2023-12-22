@@ -100,6 +100,10 @@ async def open_piker_runtime(
             or [_default_reg_addr]
         )
 
+        if ems := tractor_kwargs.get('enable_modules'):
+            # import pdbp; pdbp.set_trace()
+            enable_modules.extend(ems)
+
         async with (
             tractor.open_root_actor(
 
