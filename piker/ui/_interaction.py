@@ -30,7 +30,11 @@ from typing import (
 )
 
 import pyqtgraph as pg
-# from pyqtgraph.GraphicsScene import mouseEvents
+# NOTE XXX: pg is super annoying and re-implements it's own mouse
+# event subsystem.. we should really look into re-working/writing
+# this down the road.. Bo
+from pyqtgraph.GraphicsScene import mouseEvents as mevs
+# from pyqtgraph.GraphicsScene.mouseEvents import MouseDragEvent
 from PyQt5.QtWidgets import QGraphicsSceneMouseEvent as gs_mouse
 from PyQt5.QtGui import (
     QWheelEvent,
@@ -466,6 +470,7 @@ class ChartView(ViewBox):
     mode_name: str = 'view'
     def_delta: float = 616 * 6
     def_scale_factor: float = 1.016 ** (def_delta * -1 / 20)
+    # annots: dict[int, GraphicsObject] = {}
 
     def __init__(
         self,
@@ -486,6 +491,7 @@ class ChartView(ViewBox):
             # defaultPadding=0.,
             **kwargs
         )
+
         # for "known y-range style"
         self._static_yrange = static_yrange
 
@@ -500,7 +506,7 @@ class ChartView(ViewBox):
 
         # add our selection box annotator
         self.select_box = SelectRect(self)
-        self.select_box.add_to_view(self)
+        # self.select_box.add_to_view(self)
         # self.addItem(
         #     self.select_box,
         #     ignoreBounds=True,
@@ -715,17 +721,18 @@ class ChartView(ViewBox):
 
     def mouseDragEvent(
         self,
-        ev,
+        ev: mevs.MouseDragEvent,
         axis: int | None = None,
 
     ) -> None:
-        pos = ev.pos()
-        lastPos = ev.lastPos()
-        dif = pos - lastPos
-        dif = dif * -1
+        pos: Point = ev.pos()
+        lastPos: Point = ev.lastPos()
+        dif: Point = (pos - lastPos) * -1
+        # dif: Point = pos - lastPos
+        # dif: Point = dif * -1
 
         # NOTE: if axis is specified, event will only affect that axis.
-        button = ev.button()
+        btn = ev.button()
 
         # Ignore axes if mouse is disabled
         mouseEnabled = np.array(
@@ -737,7 +744,7 @@ class ChartView(ViewBox):
             mask[1-axis] = 0.0
 
         # Scale or translate based on mouse button
-        if button & (
+        if btn & (
             QtCore.Qt.LeftButton | QtCore.Qt.MidButton
         ):
             # zoom y-axis ONLY when click-n-drag on it
@@ -760,15 +767,18 @@ class ChartView(ViewBox):
                 # XXX: WHY
                 ev.accept()
 
-                down_pos = ev.buttonDownPos()
+                down_pos: Point = ev.buttonDownPos(
+                    btn=btn,
+                )
+                scen_pos: Point = ev.scenePos()
+                scen_down_pos: Point = ev.buttonDownScenePos(
+                    btn=btn,
+                )
 
                 # This is the final position in the drag
                 if ev.isFinish():
 
-                    self.select_box.mouse_drag_released(
-                        down_pos,
-                        pos,
-                    )
+                    # import pdbp; pdbp.set_trace()
 
                     # NOTE: think of this as a `.mouse_drag_release()`
                     # (bc HINT that's what i called the shit ass
@@ -776,34 +786,36 @@ class ChartView(ViewBox):
                     # fucking call] originally.. you bish, guille)
                     # Bo.. oraleeee
                     self.select_box.set_scen_pos(
-                        down_pos,
-                        pos,
+                        # down_pos,
+                        # pos,
+                        scen_down_pos,
+                        scen_pos,
                     )
 
+                    # this is the zoom transform cmd
                     ax = QtCore.QRectF(down_pos, pos)
                     ax = self.childGroup.mapRectFromParent(ax)
-
-                    # this is the zoom transform cmd
-                    self.showAxRect(ax)
-
+                    # self.showAxRect(ax)
                     # axis history tracking
                     self.axHistoryPointer += 1
                     self.axHistory = self.axHistory[
                         :self.axHistoryPointer] + [ax]
 
                 else:
-                    print('drag finish?')
                     self.select_box.set_scen_pos(
-                        down_pos,
-                        pos,
+                        # down_pos,
+                        # pos,
+                        scen_down_pos,
+                        scen_pos,
                     )
 
                     # update shape of scale box
                     # self.updateScaleBox(ev.buttonDownPos(), ev.pos())
-                    self.updateScaleBox(
-                        down_pos,
-                        ev.pos(),
-                    )
+                    # breakpoint()
+                    # self.updateScaleBox(
+                    #     down_pos,
+                    #     ev.pos(),
+                    # )
 
             # PANNING MODE
             else:
@@ -842,7 +854,7 @@ class ChartView(ViewBox):
                 # ev.accept()
 
         # WEIRD "RIGHT-CLICK CENTER ZOOM" MODE
-        elif button & QtCore.Qt.RightButton:
+        elif btn & QtCore.Qt.RightButton:
 
             if self.state['aspectLocked'] is not False:
                 mask[0] = 0
