@@ -526,7 +526,7 @@ def with_dts(
         pl.from_epoch(pl.col(time_col)).alias('dt'),
     ]).with_columns([
         pl.from_epoch(
-            pl.col(f'{time_col}_prev')
+            column=pl.col(f'{time_col}_prev'),
         ).alias('dt_prev'),
         pl.col('dt').diff().alias('dt_diff'),
     ]) #.with_columns(
