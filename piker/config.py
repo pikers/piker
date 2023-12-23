@@ -134,14 +134,19 @@ def get_app_dir(
 
 _click_config_dir: Path = Path(get_app_dir('piker'))
 _config_dir: Path = _click_config_dir
-_parent_user: str = os.environ.get('SUDO_USER')
 
-if _parent_user:
+# NOTE: when using `sudo` we attempt to determine the non-root user
+# and still use their normal config dir.
+if (
+    (_parent_user := os.environ.get('SUDO_USER'))
+    and
+    _parent_user != 'root'
+):
     non_root_user_dir = Path(
         os.path.expanduser(f'~{_parent_user}')
     )
     root: str = 'root'
-    _ccds: str = str(_click_config_dir)  # click config dir string
+    _ccds: str = str(_click_config_dir)  # click config dir as string
     i_tail: int = int(_ccds.rfind(root) + len(root))
     _config_dir = (
         non_root_user_dir
