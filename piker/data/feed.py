@@ -121,6 +121,8 @@ class _FeedsBus(Struct):
                 trio.CancelScope] = trio.TASK_STATUS_IGNORED,
         ) -> None:
             with trio.CancelScope() as cs:
+                # TODO: shouldn't this be a direct await to avoid
+                # cancellation contagion to the bus nursery!?!?!
                 await self.nursery.start(
                     target,
                     *args,
@@ -327,7 +329,6 @@ async def allocate_persistent_feed(
     ) = await bus.nursery.start(
         manage_history,
         mod,
-        bus,
         mkt,
         some_data_ready,
         feed_is_live,
@@ -456,8 +457,12 @@ async def open_feed_bus(
     if loglevel is None:
         loglevel = tractor.current_actor().loglevel
 
-    # XXX: required to propagate ``tractor`` loglevel to piker logging
-    get_console_log(loglevel or tractor.current_actor().loglevel)
+    # XXX: required to propagate ``tractor`` loglevel to piker
+    # logging
+    get_console_log(
+        loglevel
+        or tractor.current_actor().loglevel
+    )
 
     # local state sanity checks
     # TODO: check for any stale shm entries for this symbol
@@ -467,7 +472,7 @@ async def open_feed_bus(
     assert 'brokerd' in servicename
     assert brokername in servicename
 
-    bus = get_feed_bus(brokername)
+    bus: _FeedsBus = get_feed_bus(brokername)
     sub_registered = trio.Event()
 
     flumes: dict[str, Flume] = {}
