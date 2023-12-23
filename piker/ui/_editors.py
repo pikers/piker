@@ -314,7 +314,6 @@ class SelectRect(QtWidgets.QGraphicsRectItem):
         color.setAlpha(66)
         self.setBrush(fn.mkBrush(color))
         self.setZValue(1e9)
-        self.hide()
 
         label = self._label = QLabel()
         label.setTextFormat(0)  # markdown
@@ -343,6 +342,7 @@ class SelectRect(QtWidgets.QGraphicsRectItem):
         ]
 
         self.add_to_view(viewbox)
+        self.hide()
 
     def add_to_view(
         self,
@@ -579,10 +579,26 @@ class SelectRect(QtWidgets.QGraphicsRectItem):
         )
         label.show()
 
-    def clear(self):
+    def hide(self):
         '''
-        Clear the selection box from view.
+        Clear the selection box from its graphics scene but
+        don't delete it permanently.
 
         '''
+        super().hide()
         self._label.hide()
-        self.hide()
+
+    # TODO: ensure noone else using dis.
+    clear = hide
+
+    def delete(self) -> None:
+        '''
+        De-allocate this rect from its rendering graphics scene.
+
+        Like a permanent hide.
+
+        '''
+        scen: QGraphicsScene = self.scene()
+        scen.removeItem(self)
+        if self._label:
+            scen.removeItem(self._label)
