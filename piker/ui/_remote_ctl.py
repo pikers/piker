@@ -20,10 +20,13 @@ to a chart from some other actor.
 
 '''
 from __future__ import annotations
-from contextlib import asynccontextmanager as acm
+from contextlib import (
+    asynccontextmanager as acm,
+    AsyncExitStack,
+)
 from pprint import pformat
 from typing import (
-    Any,
+    # Any,
     AsyncContextManager,
 )
 
@@ -45,6 +48,7 @@ from ._display import DisplayState
 from ._interaction import ChartView
 from ._editors import SelectRect
 from ._chart import ChartPlotWidget
+from ..brokers import SymbolNotFound
 
 
 log = get_logger(__name__)
@@ -61,8 +65,10 @@ _dss: dict[str, DisplayState] | None = None
 # _ctxs: set[Context] = set()
 _ctxs: list[Context] = []
 
-# global map of all uniquely created annotation-graphics
-# so that they can be mutated (eventually) by a client.
+# XXX: global map of all uniquely created annotation-graphics so
+# that they can be mutated (eventually) by a client.
+# NOTE: this map is only populated on the `chart` actor side (aka
+# the "annotations server" which actually renders to a Qt canvas).
 _annots: dict[int, QGraphicsItem] = {}
 
 
@@ -123,7 +129,22 @@ async def remote_annotate(
                     # delegate generically to the requested method
                     getattr(rect, meth)(**kwargs)
                     rect.show()
-                    await annot_req_stream.send(id(rect))
+                    aid: int = id(rect)
+                    _annots[aid] = rect
+                    await annot_req_stream.send(aid)
+
+                case {
+                    'rm_annot': int(aid),
+                }:
+                    # NOTE: this is normally entered on
+                    # a client's annotation de-alloc normally
+                    # prior to detach or modify.
+                    annot: 'QGraphicsItem' = _annots[aid]
+                    annot.delete()
+
+                    # respond to client indicating annot
+                    # was indeed deleted.
+                    await annot_req_stream.send(aid)
 
                 case _:
                     log.error(
@@ -142,7 +163,9 @@ class AnnotCtl(Struct):
 
     '''
     ctx2fqmes: dict[str, str]
-    fqme2stream: dict[str, MsgStream]
+    fqme2ipc: dict[str, MsgStream]
+    _annot_stack = AsyncExitStack()
+    _ipcs: dict[int, MsgStream] = {}
 
     async def add_rect(
         self,
@@ -155,13 +178,21 @@ class AnnotCtl(Struct):
         domain: str = 'view',  # or 'scene'
         color: str = 'dad_blue',
 
+        from_acm: bool = False,
+
     ) -> int:
         '''
         Add a `SelectRect` annotation to the target view, return
         the instances `id(obj)` from the remote UI actor.
 
         '''
-        ipc: MsgStream = self.fqme2stream[fqme]
+        ipc: MsgStream = self.fqme2ipc.get(fqme)
+        if ipc is None:
+            raise SymbolNotFound(
+                'No chart (actor) seems to have mkt feed loaded?\n'
+                f'{fqme}'
+            )
+
         await ipc.send({
             'fqme': fqme,
             'annot': 'SelectRect',
@@ -175,32 +206,58 @@ class AnnotCtl(Struct):
                 'update_label': False,
             },
         })
-        return (await ipc.receive())
-
-    async def modify(
-        self,
-        aid: int,  # annotation id
-        meth: str,  # far end graphics object method to invoke
-        params: dict[str, Any],  # far end `meth(**kwargs)`
-    ) -> bool:
-        '''
-        Modify an existing (remote) annotation's graphics
-        paramters, thus changing it's appearance / state in real
-        time.
-
-        '''
-        raise NotImplementedError
+        aid: int = await ipc.receive()
+        self._ipcs[aid] = ipc
+        if not from_acm:
+            self._annot_stack.push_async_exit(
+                self.remove(aid)
+            )
+        return aid
 
     async def remove(
         self,
-        uid: int,
+        aid: int,
+
     ) -> bool:
         '''
         Remove an existing annotation by instance id.
 
         '''
-        raise NotImplementedError
+        ipc: MsgStream = self._ipcs[aid]
+        await ipc.send({
+            'rm_annot': aid,
+        })
+        removed: bool = await ipc.receive()
+        return removed
 
+    @acm
+    async def open_rect(
+        self,
+        **kwargs,
+    ) -> int:
+        try:
+            aid: int = await self.add_rect(
+                from_acm=True,
+                **kwargs,
+            )
+            yield aid
+        finally:
+            await self.remove(aid)
+
+    # TODO: do we even need this?
+    # async def modify(
+    #     self,
+    #     aid: int,  # annotation id
+    #     meth: str,  # far end graphics object method to invoke
+    #     params: dict[str, Any],  # far end `meth(**kwargs)`
+    # ) -> bool:
+    #     '''
+    #     Modify an existing (remote) annotation's graphics
+    #     paramters, thus changing it's appearance / state in real
+    #     time.
+
+    #     '''
+    #     raise NotImplementedError
 
 
 @acm
@@ -235,20 +292,25 @@ async def open_annot_ctl(
             )
 
         ctx2fqmes: dict[str, set[str]] = {}
-        fqme2stream: dict[str, MsgStream] = {}
+        fqme2ipc: dict[str, MsgStream] = {}
+        stream_ctxs: list[AsyncContextManager] = []
         client = AnnotCtl(
             ctx2fqmes=ctx2fqmes,
-            fqme2stream=fqme2stream,
+            fqme2ipc=fqme2ipc,
+            # _annot_stack=annots_stack,
         )
 
-        stream_ctxs: list[AsyncContextManager] = []
-        async with trionics.gather_contexts(ctx_mngrs) as ctxs:
+        async with (
+            # AsyncExitStack() as annots_stack,
+            client._annot_stack,  # as astack,
+            trionics.gather_contexts(ctx_mngrs) as ctxs,
+        ):
             for (ctx, fqmes) in ctxs:
                 stream_ctxs.append(ctx.open_stream())
 
                 # fill lookup table of mkt addrs to IPC ctxs
                 for fqme in fqmes:
-                    if other := fqme2stream.get(fqme):
+                    if other := fqme2ipc.get(fqme):
                         raise ValueError(
                             f'More then one chart displays {fqme}!?\n'
                             'Other UI actor info:\n'
@@ -266,7 +328,7 @@ async def open_annot_ctl(
                 for stream in streams:
                     fqmes: set[str] = ctx2fqmes[stream._ctx.cid]
                     for fqme in fqmes:
-                        fqme2stream[fqme] = stream
+                        fqme2ipc[fqme] = stream
 
                 yield client
                 # TODO: on graceful teardown should we try to
