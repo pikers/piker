@@ -600,5 +600,10 @@ class SelectRect(QtWidgets.QGraphicsRectItem):
         '''
         scen: QGraphicsScene = self.scene()
         scen.removeItem(self)
-        if self._label:
-            scen.removeItem(self._label)
+        if (
+            self._label
+            and
+            self._label_proxy
+
+        ):
+            scen.removeItem(self._label_proxy)
