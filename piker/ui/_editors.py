@@ -599,6 +599,9 @@ class SelectRect(QtWidgets.QGraphicsRectItem):
 
         '''
         scen: QGraphicsScene = self.scene()
+        if scen is None:
+            return
+
         scen.removeItem(self)
         if (
             self._label
