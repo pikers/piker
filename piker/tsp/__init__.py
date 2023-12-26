@@ -120,7 +120,7 @@ from ..storage import TimeseriesNotFound
 if TYPE_CHECKING:
     from bidict import bidict
     from ..service.marketstore import StorageClient
-    from .feed import _FeedsBus
+    # from .feed import _FeedsBus
 
 
 # `ShmArray` buffer sizing configuration:
@@ -1352,9 +1352,7 @@ def iter_dfs_from_shms(
             readonly=True,
         )
         assert not opened
-        ohlcv = shm.array
-
-        from ._anal import np2pl
+        ohlcv: np.ndarray = shm.array
         df: pl.DataFrame = np2pl(ohlcv)
 
         yield (

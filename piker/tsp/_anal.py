@@ -620,7 +620,11 @@ def detect_price_gaps(
     ...
 
 
-def dedupe(src_df: pl.DataFrame) -> tuple[
+def dedupe(
+    src_df: pl.DataFrame,
+    sort: bool = True,
+
+) -> tuple[
     pl.DataFrame,  # with dts
     pl.DataFrame,  # gaps
     pl.DataFrame,  # with deduplicated dts (aka gap/repeat removal)
@@ -634,6 +638,8 @@ def dedupe(src_df: pl.DataFrame) -> tuple[
 
     '''
     df: pl.DataFrame = with_dts(src_df)
+
+    # TODO: enable passing existing `with_dts` df for speedup?
     gaps: pl.DataFrame = detect_time_gaps(df)
 
     # if no gaps detected just return carbon copies
@@ -651,8 +657,10 @@ def dedupe(src_df: pl.DataFrame) -> tuple[
         subset=['dt'],
         maintain_order=True,
     )
+    if sort:
+        deduped = deduped.sort(by='time')
 
-    deduped_gaps = detect_time_gaps(deduped)
+    deduped_gaps: pl.DataFrame = detect_time_gaps(deduped)
 
     diff: int = (
         df.height
@@ -660,7 +668,8 @@ def dedupe(src_df: pl.DataFrame) -> tuple[
         deduped.height
     )
     log.warning(
-        f'Gaps found:\n{gaps}\n'
+        f'TIME GAPs FOUND:\n'
+        # f'{gaps}\n'
         f'deduped Gaps found:\n{deduped_gaps}'
     )
     return (
