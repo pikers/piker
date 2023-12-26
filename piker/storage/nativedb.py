@@ -95,16 +95,19 @@ def detect_period(shm: ShmArray) -> float:
 
 def mk_ohlcv_shm_keyed_filepath(
     fqme: str,
-    period: float,  # ow known as the "timeframe"
+    period: float | int,  # ow known as the "timeframe"
     datadir: Path,
 
-) -> str:
+) -> Path:
 
     if period < 1.:
         raise ValueError('Sample period should be >= 1.!?')
 
-    period_s: str = f'{period}s'
-    path: Path = datadir / f'{fqme}.ohlcv{period_s}.parquet'
+    path: Path = (
+        datadir
+        /
+        f'{fqme}.ohlcv{int(period)}s.parquet'
+    )
     return path
 
 
@@ -227,6 +230,7 @@ class NativeStorageClient:
         self,
         fqme: str,
         period: float,
+
     ) -> Path:
         return mk_ohlcv_shm_keyed_filepath(
             fqme=fqme,
@@ -239,6 +243,7 @@ class NativeStorageClient:
         fqme: str,
         df: pl.DataFrame,
         timeframe: float,
+
     ) -> None:
         # cache df for later usage since we (currently) need to
         # convert to np.ndarrays to push to our `ShmArray` rt
