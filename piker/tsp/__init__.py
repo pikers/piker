@@ -440,8 +440,11 @@ async def start_backfill(
             # broker says there never was or is no more history to pull
             except DataUnavailable:
                 log.warning(
-                    f'NO-MORE-DATA: backend {mod.name} halted history:\n'
-                    f'{timeframe}@{mkt.fqme}'
+                    f'NO-MORE-DATA in range?\n'
+                    f'`{mod.name}` halted history:\n'
+                    f'tf@fqme: {timeframe}@{mkt.fqme}\n'
+                    'bf_until <- last_start_dt:\n'
+                    f'{backfill_until_dt} <- {last_start_dt}\n'
                 )
 
                 # ugh, what's a better way?
