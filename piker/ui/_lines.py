@@ -28,7 +28,17 @@ from typing import (
 
 import pyqtgraph as pg
 from pyqtgraph import Point, functions as fn
-from PyQt5 import QtCore, QtGui, QtWidgets
+from PyQt5 import (
+    QtCore,
+    QtGui,
+)
+from PyQt5.QtWidgets import (
+    QGraphicsPathItem,
+    QStyleOptionGraphicsItem,
+    QGraphicsItem,
+    QGraphicsScene,
+    QWidget,
+)
 from PyQt5.QtCore import QPointF
 
 from ._annotate import LevelMarker
@@ -130,7 +140,7 @@ class LevelLine(pg.InfiniteLine):
         self._right_end_sc: float = 0
 
         # use px caching
-        self.setCacheMode(QtWidgets.QGraphicsItem.DeviceCoordinateCache)
+        self.setCacheMode(QGraphicsItem.DeviceCoordinateCache)
 
     def txt_offsets(self) -> tuple[int, int]:
         return 0, 0
@@ -308,7 +318,7 @@ class LevelLine(pg.InfiniteLine):
         Remove this line from containing chart/view/scene.
 
         '''
-        scene = self.scene()
+        scene: QGraphicsScene = self.scene()
         if scene:
             for label in self._labels:
                 label.delete()
@@ -339,8 +349,8 @@ class LevelLine(pg.InfiniteLine):
         self,
 
         p: QtGui.QPainter,
-        opt: QtWidgets.QStyleOptionGraphicsItem,
-        w: QtWidgets.QWidget
+        opt: QStyleOptionGraphicsItem,
+        w: QWidget
 
     ) -> None:
         '''
@@ -417,9 +427,9 @@ class LevelLine(pg.InfiniteLine):
 
     def add_marker(
         self,
-        path: QtWidgets.QGraphicsPathItem,
+        path: QGraphicsPathItem,
 
-    ) -> QtWidgets.QGraphicsPathItem:
+    ) -> QGraphicsPathItem:
 
         self._marker = path
         self._marker.setPen(self.currentPen)
