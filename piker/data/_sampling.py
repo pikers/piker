@@ -33,6 +33,11 @@ from typing import (
 )
 
 import tractor
+from tractor import (
+    Context,
+    MsgStream,
+    Channel,
+)
 from tractor.trionics import (
     maybe_open_nursery,
 )
@@ -53,7 +58,10 @@ if TYPE_CHECKING:
     from ._sharedmem import (
         ShmArray,
     )
-    from .feed import _FeedsBus
+    from .feed import (
+        _FeedsBus,
+        Sub,
+    )
 
 
 # highest frequency sample step is 1 second by default, though in
@@ -94,7 +102,7 @@ class Sampler:
         float,
         list[
             float,
-            set[tractor.MsgStream]
+            set[MsgStream]
         ],
     ] = defaultdict(
         lambda: [
@@ -258,8 +266,8 @@ class Sampler:
             f'broadcasting {period_s} -> {last_ts}\n'
             # f'consumers: {subs}'
         )
-        borked: set[tractor.MsgStream] = set()
-        sent: set[tractor.MsgStream] = set()
+        borked: set[MsgStream] = set()
+        sent: set[MsgStream] = set()
         while True:
             try:
                 for stream in (subs - sent):
@@ -314,7 +322,7 @@ class Sampler:
 
 @tractor.context
 async def register_with_sampler(
-    ctx: tractor.Context,
+    ctx: Context,
     period_s: float,
     shms_by_period: dict[float, dict] | None = None,
 
@@ -649,12 +657,7 @@ async def sample_and_broadcast(
             # eventually block this producer end of the feed and
             # thus other consumers still attached.
             sub_key: str = broker_symbol.lower()
-            subs: list[
-                tuple[
-                    tractor.MsgStream | trio.MemorySendChannel,
-                    float | None,  # tick throttle in Hz
-                ]
-            ] = bus.get_subs(sub_key)
+            subs: set[Sub] = bus.get_subs(sub_key)
 
             # NOTE: by default the broker backend doesn't append
             # it's own "name" into the fqme schema (but maybe it
@@ -663,34 +666,40 @@ async def sample_and_broadcast(
             fqme: str = f'{broker_symbol}.{brokername}'
             lags: int = 0
 
-            # TODO: speed up this loop in an AOT compiled lang (like
-            # rust or nim or zig) and/or instead of doing a fan out to
-            # TCP sockets here, we add a shm-style tick queue which
-            # readers can pull from instead of placing the burden of
-            # broadcast on solely on this `brokerd` actor. see issues:
+            # XXX TODO XXX: speed up this loop in an AOT compiled
+            # lang (like rust or nim or zig)!
+            # AND/OR instead of doing a fan out to TCP sockets
+            # here, we add a shm-style tick queue which readers can
+            # pull from instead of placing the burden of broadcast
+            # on solely on this `brokerd` actor. see issues:
             # - https://github.com/pikers/piker/issues/98
             # - https://github.com/pikers/piker/issues/107
 
-            for (stream, tick_throttle) in subs.copy():
+            # for (stream, tick_throttle) in subs.copy():
+            for sub in subs.copy():
+                ipc: MsgStream = sub.ipc
+                throttle: float = sub.throttle_rate
                 try:
                     with trio.move_on_after(0.2) as cs:
-                        if tick_throttle:
+                        if throttle:
+                            send_chan: trio.abc.SendChannel = sub.send_chan
+
                             # this is a send mem chan that likely
                             # pushes to the ``uniform_rate_send()`` below.
                             try:
-                                stream.send_nowait(
+                                send_chan.send_nowait(
                                     (fqme, quote)
                                 )
                             except trio.WouldBlock:
                                 overruns[sub_key] += 1
-                                ctx = stream._ctx
-                                chan = ctx.chan
+                                ctx: Context = ipc._ctx
+                                chan: Channel = ctx.chan
 
                                 log.warning(
                                     f'Feed OVERRUN {sub_key}'
                                     '@{bus.brokername} -> \n'
                                     f'feed @ {chan.uid}\n'
-                                    f'throttle = {tick_throttle} Hz'
+                                    f'throttle = {throttle} Hz'
                                 )
 
                                 if overruns[sub_key] > 6:
@@ -707,10 +716,10 @@ async def sample_and_broadcast(
                                             f'{sub_key}:'
                                             f'{ctx.cid}@{chan.uid}'
                                         )
-                                        await stream.aclose()
+                                        await ipc.aclose()
                                         raise trio.BrokenResourceError
                         else:
-                            await stream.send(
+                            await ipc.send(
                                 {fqme: quote}
                             )
 
@@ -724,16 +733,16 @@ async def sample_and_broadcast(
                     trio.ClosedResourceError,
                     trio.EndOfChannel,
                 ):
-                    ctx = stream._ctx
-                    chan = ctx.chan
+                    ctx: Context = ipc._ctx
+                    chan: Channel = ctx.chan
                     if ctx:
                         log.warning(
                             'Dropped `brokerd`-quotes-feed connection:\n'
                             f'{broker_symbol}:'
                             f'{ctx.cid}@{chan.uid}'
                         )
-                    if tick_throttle:
-                        assert stream._closed
+                    if sub.throttle_rate:
+                        assert ipc._closed
 
                     # XXX: do we need to deregister here
                     # if it's done in the fee bus code?
@@ -742,7 +751,7 @@ async def sample_and_broadcast(
                     # since there seems to be some kinda race..
                     bus.remove_subs(
                         sub_key,
-                        {(stream, tick_throttle)},
+                        {sub},
                     )
 
 
@@ -750,7 +759,7 @@ async def uniform_rate_send(
 
     rate: float,
     quote_stream: trio.abc.ReceiveChannel,
-    stream: tractor.MsgStream,
+    stream: MsgStream,
 
     task_status: TaskStatus = trio.TASK_STATUS_IGNORED,
 
