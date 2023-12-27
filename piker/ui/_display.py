@@ -471,6 +471,9 @@ async def graphics_update_loop(
             await tractor.pause()
 
     try:
+        # XXX TODO: we need to do _dss UPDATE here so that when
+        # a feed-view is switched you can still remote annotate the
+        # prior view..
         from . import _remote_ctl
         _remote_ctl._dss = dss
 
@@ -526,7 +529,7 @@ async def graphics_update_loop(
     finally:
         # XXX: cancel any remote annotation control ctxs
         _remote_ctl._dss = None
-        for ctx in _remote_ctl._ctxs:
+        for cid, (ctx, aids) in _remote_ctl._ctxs.items():
             await ctx.cancel()
 
 
