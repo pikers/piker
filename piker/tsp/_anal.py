@@ -380,10 +380,6 @@ def get_null_segs(
                 None,  # backfilled on next iter
             ])
 
-            # row = zero_t[fi]
-            # absi_pre_zseg = row['index'][0] - 1
-            # absi_pre_zseg = absi - 1
-
             # final iter case, backfill FINAL end iabs!
             if (i + 1) == fi_zgaps.size:
                 absi_zsegs[-1][1] = absi_zeros[-1] + 1
@@ -623,8 +619,9 @@ def detect_price_gaps(
 
 def dedupe(
     src_df: pl.DataFrame,
-    sort: bool = True,
 
+    time_gaps: pl.DataFrame | None = None,
+    sort: bool = True,
     period: float = 60,
 
 ) -> tuple[
@@ -641,34 +638,18 @@ def dedupe(
 
     '''
     wdts: pl.DataFrame = with_dts(src_df)
-    src_gaps: pl.DataFrame = detect_time_gaps(
-        wdts,
-        expect_period=period,
-        gap_dt_unit=None if period < 60 else 'days',
-    )
 
-    # if no gaps detected just return carbon copies
-    # and no len diff.
-    if src_gaps.is_empty():
-        return (
-            wdts,
-            src_gaps,
-            wdts,
-            0,
-        )
+    # maybe sort on any time field
+    if sort:
+        wdts = wdts.sort(by='time')
+        # TODO: detect out-of-order segments which were corrected!
+        # -[ ] report in log msg
+        # -[ ] possibly return segment sections which were moved?
 
     # remove duplicated datetime samples/sections
     deduped: pl.DataFrame = wdts.unique(
         subset=['dt'],
         maintain_order=True,
-    )
-    if sort:
-        deduped = deduped.sort(by='time')
-
-    deduped_gaps: pl.DataFrame = detect_time_gaps(
-        deduped,
-        expect_period=period,
-        gap_dt_unit=None if period < 60 else 'days',
     )
 
     diff: int = (
@@ -676,14 +657,8 @@ def dedupe(
         -
         deduped.height
     )
-    log.warning(
-        f'TIME GAPs FOUND:\n'
-        # f'{gaps}\n'
-        f'deduped Gaps found:\n{deduped_gaps}'
-    )
     return (
         wdts,
-        deduped_gaps,
         deduped,
         diff,
     )
