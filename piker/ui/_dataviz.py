@@ -313,6 +313,7 @@ class Viz(Struct):
     _last_uppx: float = 0
     _in_ds: bool = False
     _index_step: float | None = None
+    _time_step: float | None = None
 
     # map from uppx -> (downsampled data, incremental graphics)
     _src_r: Renderer | None = None
@@ -359,7 +360,8 @@ class Viz(Struct):
 
     def index_step(
         self,
-        reset: bool = False,
+        index_field: str | None = None,
+
     ) -> float:
         '''
         Return the size between sample steps in the units of the
@@ -367,11 +369,16 @@ class Viz(Struct):
         epoch time in seconds.
 
         '''
-        # attempt to dectect the best step size by scanning a sample of
-        # the source data.
-        if self._index_step is None:
-
-            index: np.ndarray = self.shm.array[self.index_field]
+        # attempt to detect the best step size by scanning a sample
+        # of the source data.
+        if (
+            self._index_step is None
+            or index_field is not None
+        ):
+            index: np.ndarray = self.shm.array[
+                index_field
+                or self.index_field
+            ]
             isample: np.ndarray = index[-16:]
 
             mxdiff: None | float = None
@@ -386,7 +393,15 @@ class Viz(Struct):
                         )
                     mxdiff = step
 
-            self._index_step = max(mxdiff, 1)
+            step: float = max(mxdiff, 1)
+
+            # only SET the internal index step if an explicit
+            # field name is NOT passed, since in such cases this
+            # is likely just being called from `.time_step()`.
+            if index_field is not None:
+                return step
+
+            self._index_step = step
             if (
                 mxdiff < 1
                 or 1 < mxdiff < 60
@@ -396,6 +411,17 @@ class Viz(Struct):
                 breakpoint()
 
         return self._index_step
+
+    def time_step(self) -> float:
+        '''
+        Attempt to determine the per-sample time-step period by 
+        forcing an epoch-index and calling `.index_step()`.
+
+        '''
+        if self._time_step is None:
+            self._time_step: float = self.index_step(index_field='time')
+
+        return self._time_step
 
     def maxmin(
         self,
