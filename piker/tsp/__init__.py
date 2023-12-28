@@ -67,49 +67,27 @@ from ..data._sampling import (
 )
 from ._anal import (
 
-    get_null_segs,
-    iter_null_segs,
-    Frame,
-    Seq,
+    get_null_segs as get_null_segs,
+    iter_null_segs as iter_null_segs,
+    Frame as Frame,
+    Seq as Seq,
 
     # codec-ish
-    np2pl,
-    pl2np,
+    np2pl as np2pl,
+    pl2np as pl2np,
 
     # `numpy` only
-    slice_from_time,
+    slice_from_time as slice_from_time,
 
     # `polars` specific
-    dedupe,
-    with_dts,
-    detect_time_gaps,
-    sort_diff,
+    dedupe as dedupe,
+    with_dts as with_dts,
+    detect_time_gaps as detect_time_gaps,
+    sort_diff as sort_diff,
 
     # TODO:
-    detect_price_gaps
+    detect_price_gaps as detect_price_gaps
 )
-
-__all__: list[str] = [
-    'dedupe',
-    'get_null_segs',
-    'iter_null_segs',
-    'sort_diff',
-    'slice_from_time',
-    'Frame',
-    'Seq',
-
-    'np2pl',
-    'pl2np',
-
-    'slice_from_time',
-
-    'with_dts',
-    'detect_time_gaps',
-    'sort_diff',
-
-    # TODO:
-    'detect_price_gaps'
-]
 
 # TODO: break up all this shite into submods!
 from ..brokers._util import (
@@ -589,13 +567,12 @@ async def start_backfill(
                     load_from_offline=False,
                 )
                 (
-                    df,
-                    gaps,
+                    wdts,
                     deduped,
                     diff,
                 ) = dedupe(df)
-                if diff:
-                    sort_diff(df)
+                # if diff:
+                #     sort_diff(df)
 
         else:
             # finally filled gap
