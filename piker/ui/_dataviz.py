@@ -36,6 +36,9 @@ from msgspec import (
     field,
 )
 import numpy as np
+from numpy import (
+    ndarray,
+)
 import pyqtgraph as pg
 from PyQt5.QtCore import QLineF
 
@@ -82,10 +85,11 @@ def render_baritems(
     viz: Viz,
     graphics: BarItems,
     read: tuple[
-        int, int, np.ndarray,
-        int, int, np.ndarray,
+        int, int, ndarray,
+        int, int, ndarray,
     ],
     profiler: Profiler,
+    force_redraw: bool = False,
     **kwargs,
 
 ) -> None:
@@ -216,9 +220,11 @@ def render_baritems(
     viz._in_ds = should_line
 
     should_redraw = (
-        changed_to_line
+        force_redraw
+        or changed_to_line
         or not should_line
     )
+    # print(f'should_redraw: {should_redraw}')
     return (
         graphics,
         r,
@@ -250,7 +256,7 @@ class ViewState(Struct):
     ] | None = None
 
     # last in view ``ShmArray.array[read_slc]`` data
-    in_view: np.ndarray | None = None
+    in_view: ndarray | None = None
 
 
 class Viz(Struct):
@@ -375,11 +381,11 @@ class Viz(Struct):
             self._index_step is None
             or index_field is not None
         ):
-            index: np.ndarray = self.shm.array[
+            index: ndarray = self.shm.array[
                 index_field
                 or self.index_field
             ]
-            isample: np.ndarray = index[-16:]
+            isample: ndarray = index[-16:]
 
             mxdiff: None | float = None
             for step in np.diff(isample):
@@ -430,6 +436,9 @@ class Viz(Struct):
         i_read_range: tuple[int, int] | None = None,
         use_caching: bool = True,
 
+        # XXX: internal debug
+        _do_print: bool = False
+
     ) -> tuple[float, float] | None:
         '''
         Compute the cached max and min y-range values for a given
@@ -449,15 +458,14 @@ class Viz(Struct):
         if shm is None:
             return None
 
-        do_print: bool = False
-        arr = shm.array
+        arr: ndarray = shm.array
 
         if i_read_range is not None:
             read_slc = slice(*i_read_range)
-            index = arr[read_slc][self.index_field]
+            index: float | int = arr[read_slc][self.index_field]
             if not index.size:
                 return None
-            ixrng = (index[0], index[-1])
+            ixrng: tuple[int, int] = (index[0], index[-1])
 
         else:
             if x_range is None:
@@ -475,15 +483,24 @@ class Viz(Struct):
 
             # TODO: hash the slice instead maybe?
             # https://stackoverflow.com/a/29980872
-            ixrng = lbar, rbar = round(x_range[0]), round(x_range[1])
+            ixrng = lbar, rbar = (
+                round(x_range[0]),
+                round(x_range[1]),
+            )
 
         if (
             use_caching
             and self._mxmn_cache_enabled
         ):
+            # TODO: is there a way to ONLY clear ranges containing
+            # a certain sub-range?
+            # -[ ] currently we have a problem where a previously
+            #    cached mxmn will persist even if the viz is "hard
+            #    re-rendered" (usually bc underlying data was
+            #    corrected)
             cached_result = self._mxmns.get(ixrng)
             if cached_result:
-                if do_print:
+                if _do_print:
                     print(
                         f'{self.name} CACHED maxmin\n'
                         f'{ixrng} -> {cached_result}'
@@ -513,7 +530,7 @@ class Viz(Struct):
                     (rbar - ifirst) + 1
                 )
 
-        slice_view = arr[read_slc]
+        slice_view: ndarray = arr[read_slc]
 
         if not slice_view.size:
             log.warning(
@@ -524,7 +541,7 @@ class Viz(Struct):
 
         elif self.ds_yrange:
             mxmn = self.ds_yrange
-            if do_print:
+            if _do_print:
                 print(
                     f'{self.name} M4 maxmin:\n'
                     f'{ixrng} -> {mxmn}'
@@ -541,7 +558,7 @@ class Viz(Struct):
 
             mxmn = ylow, yhigh
             if (
-                do_print
+                _do_print
             ):
                 s = 3
                 print(
@@ -555,14 +572,23 @@ class Viz(Struct):
 
         # cache result for input range
         ylow, yhi = mxmn
+        diff: float = yhi - ylow
+
+        # order-of-magnitude check
+        # TODO: really we should be checking the hi or low
+        # against the previous sample to catch stuff like,
+        # - rando stock (reverse-)split
+        # - null-segments written by some prior
+        #   crash-during-backfil
+        if diff > 0:
+            omg: float = abs(logf(diff, 10))
+        else:
+            omg: float = 0
 
         try:
             prolly_anomaly: bool = (
-                (
-                    abs(logf(ylow, 10)) > 16
-                    if ylow
-                    else False
-                )
+                # diff == 0
+                (ylow and omg > 10)
                 or (
                     isnan(ylow) or isnan(yhi)
                 )
@@ -603,7 +629,7 @@ class Viz(Struct):
         self,
         view_range: None | tuple[float, float] = None,
         index_field: str | None = None,
-        array: np.ndarray | None = None,
+        array: ndarray | None = None,
 
     ) -> tuple[
         int, int, int, int, int, int
@@ -674,8 +700,8 @@ class Viz(Struct):
         profiler: None | Profiler = None,
 
     ) -> tuple[
-        int, int, np.ndarray,
-        int, int, np.ndarray,
+        int, int, ndarray,
+        int, int, ndarray,
     ]:
         '''
         Read the underlying shm array buffer and
@@ -845,6 +871,10 @@ class Viz(Struct):
                 graphics,
                 read,
                 profiler,
+
+                # NOTE: only set when caller says to
+                force_redraw=should_redraw,
+
                 **kwargs,
             )
 
@@ -1007,6 +1037,39 @@ class Viz(Struct):
             graphics,
         )
 
+    def reset_graphics(
+        self,
+
+        # TODO: allow only resetting within some x-domain range?
+        # ixrng: tuple[int, int] | None = None,
+
+    ) -> None:
+        '''
+        Hard reset all graphics (rendering) layers for this
+        data viz including clearing the mxmn auto-y-range
+        cache.
+
+        Normally called when the underlying data set is modified
+        (probably by some `.tsp` correcting/editing routine) and
+        the (now cached) graphics need to be fully re-rendered from
+        source.
+
+        '''
+        log.warning(
+            f'Forcing hard Viz graphihcs RESET:\n'
+            f'.name: {self.name}\n'
+            f'.index_field: {self.index_field}\n'
+            f'.index_step(): {self.index_step()}\n'
+            f'.time_step(): {self.time_step()}\n'
+        )
+        # XXX: always clear the mxn y-range cache
+        # to avoid old data (anomalies) from being
+        # retained in auto-yrange output.
+        self._mxmn_cache_enabled = False
+        self._mxmns.clear()
+        self.update_graphics(force_redraw=True)
+        self._mxmn_cache_enabled = True
+
     def draw_last(
         self,
         array_key: str | None = None,
@@ -1099,7 +1162,7 @@ class Viz(Struct):
 
         '''
         shm: ShmArray = self.shm
-        array: np.ndarray = shm.array
+        array: ndarray = shm.array
         view: ChartView = self.plot.vb
         (
             vl,
