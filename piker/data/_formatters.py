@@ -41,6 +41,11 @@ if TYPE_CHECKING:
     )
     from piker.toolz import Profiler
 
+# default gap between bars: "bar gap multiplier"
+# - 0.5 is no overlap between OC arms,
+# - 1.0 is full overlap on each neighbor sample
+BGM: float = 0.16
+
 
 class IncrementalFormatter(msgspec.Struct):
     '''
@@ -513,6 +518,7 @@ class IncrementalFormatter(msgspec.Struct):
 
 
 class OHLCBarsFmtr(IncrementalFormatter):
+
     x_offset: np.ndarray = np.array([
         -0.5,
         0,
@@ -604,8 +610,9 @@ class OHLCBarsFmtr(IncrementalFormatter):
         vr: tuple[int, int],
 
         start: int = 0,  # XXX: do we need this?
+
         # 0.5 is no overlap between arms, 1.0 is full overlap
-        w: float = 0.16,
+        gap: float = BGM,
 
     ) -> tuple[
         np.ndarray,
@@ -622,7 +629,7 @@ class OHLCBarsFmtr(IncrementalFormatter):
             array[:-1],
             start,
             bar_w=self.index_step_size,
-            bar_gap=w * self.index_step_size,
+            bar_gap=gap * self.index_step_size,
 
             # XXX: don't ask, due to a ``numba`` bug..
             use_time_index=(self.index_field == 'time'),
