@@ -23,7 +23,7 @@ from functools import lru_cache
 from typing import Callable
 from math import floor
 
-import numpy as np
+import polars as pl
 import pyqtgraph as pg
 from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtCore import QPointF
@@ -33,6 +33,7 @@ from ..accounting._mktinfo import float_digits
 from ._label import Label
 from ._style import DpiAwareFont, hcolor, _font
 from ._interaction import ChartView
+from ._dataviz import Viz
 
 _axis_pen = pg.mkPen(hcolor('bracket'))
 
@@ -287,9 +288,7 @@ class DynamicDateAxis(Axis):
     # time formats mapped by seconds between bars
     tick_tpl = {
         60 * 60 * 24: '%Y-%b-%d',
-        60: '%H:%M',
-        30: '%H:%M:%S',
-        5: '%H:%M:%S',
+        60: '%Y-%b-%d(%H:%M)',
         1: '%H:%M:%S',
     }
 
@@ -305,10 +304,10 @@ class DynamicDateAxis(Axis):
         # XX: ARGGGGG AG:LKSKDJF:LKJSDFD
         chart = self.pi.chart_widget
 
-        viz = chart._vizs[chart.name]
+        viz: Viz = chart._vizs[chart.name]
         shm = viz.shm
         array = shm.array
-        ifield = viz.index_field
+        ifield: str = viz.index_field
         index = array[ifield]
         i_0, i_l = index[0], index[-1]
 
@@ -329,7 +328,7 @@ class DynamicDateAxis(Axis):
             arr_len = index.shape[0]
             first = shm._first.value
             times = array['time']
-            epochs = times[
+            epochs: list[int] = times[
                 list(
                     map(
                         int,
@@ -341,23 +340,30 @@ class DynamicDateAxis(Axis):
                 )
             ]
         else:
-            epochs = list(map(int, indexes))
+            epochs: list[int] = list(map(int, indexes))
 
         # TODO: **don't** have this hard coded shift to EST
-        # delay = times[-1] - times[-2]
-        dts = np.array(
+        delay: float = viz.time_step()
+        if delay > 1:
+            # NOTE: use less granular dt-str when using 1M+ OHLC
+            fmtstr: str = self.tick_tpl[delay]
+        else:
+            fmtstr: str = '%Y-%m-%d(%H:%M:%S)'
+
+        # https://pola-rs.github.io/polars/py-polars/html/reference/expressions/api/polars.from_epoch.html#polars-from-epoch
+        pl_dts: pl.Series = pl.from_epoch(
             epochs,
-            dtype='datetime64[s]',
+            time_unit='s',
+        # NOTE: kinda weird we can pass it to `.from_epoch()` no?
+        ).dt.replace_time_zone(
+            time_zone='UTC'
+        ).dt.convert_time_zone(
+            # TODO: pull this from either:
+            # -[ ] the mkt venue tz by default
+            # -[ ] the user's config under `sys.mkt_timezone: str`
+            'EST'
         )
-
-        # see units listing:
-        # https://numpy.org/devdocs/reference/arrays.datetime.html#datetime-units
-        return list(np.datetime_as_string(dts))
-
-        # TODO: per timeframe formatting?
-        # - we probably need this based on zoom now right?
-        # prec = self.np_dt_precision[delay]
-        # return dts.strftime(self.tick_tpl[delay])
+        return pl_dts.dt.to_string(fmtstr).to_list()
 
     def tickStrings(
         self,
