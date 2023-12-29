@@ -201,8 +201,8 @@ async def open_signal_handler(
         async for args in recv:
             await async_handler(*args)
 
-    async with trio.open_nursery() as n:
-        n.start_soon(proxy_to_handler)
+    async with trio.open_nursery() as tn:
+        tn.start_soon(proxy_to_handler)
         async with send:
             yield
 
@@ -212,18 +212,48 @@ async def open_handlers(
 
     source_widgets: list[QWidget],
     event_types: set[QEvent],
-    async_handler: Callable[[QWidget, trio.abc.ReceiveChannel], None],
-    **kwargs,
+
+    # NOTE: if you want to bind in additional kwargs to the handler
+    # pass in a `partial()` instead!
+    async_handler: Callable[
+        [QWidget, trio.abc.ReceiveChannel],  # required handler args
+        None
+    ],
+
+    # XXX: these are ONLY inputs available to the
+    # `open_event_stream()` event-relay to mem-chan factor above!
+    **open_ev_stream_kwargs,
 
 ) -> None:
+    '''
+    Connect and schedule an async handler function to receive an
+    arbitrary `QWidget`'s events with kb/mouse msgs repacked into
+    structs (see above) and shuttled over a mem-chan to the input
+    `async_handler` to allow interaction-IO processing from
+    a `trio` func-as-task.
+
+    '''
+    widget: QWidget
+    streams: list[trio.abc.ReceiveChannel]
     async with (
-        trio.open_nursery() as n,
+        trio.open_nursery() as tn,
         gather_contexts([
-            open_event_stream(widget, event_types, **kwargs)
+            open_event_stream(
+                widget,
+                event_types,
+                **open_ev_stream_kwargs,
+            )
             for widget in source_widgets
         ]) as streams,
     ):
-        for widget, event_recv_stream in zip(source_widgets, streams):
-            n.start_soon(async_handler, widget, event_recv_stream)
+        for widget, event_recv_stream in zip(
+            source_widgets,
+            streams,
+        ):
+            tn.start_soon(
+                async_handler,
+                widget,
+                event_recv_stream,
+            )
 
         yield

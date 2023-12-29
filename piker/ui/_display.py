@@ -210,9 +210,9 @@ async def increment_history_view(
 ):
     hist_chart: ChartPlotWidget = ds.hist_chart
     hist_viz: Viz = ds.hist_viz
-    viz: Viz = ds.viz
+    # viz: Viz = ds.viz
     assert 'hist' in hist_viz.shm.token['shm_name']
-    name: str = hist_viz.name
+    # name: str = hist_viz.name
 
     # TODO: seems this is more reliable at keeping the slow
     # chart incremented in view more correctly?
@@ -225,7 +225,8 @@ async def increment_history_view(
     # draw everything from scratch on first entry!
     for curve_name, hist_viz in hist_chart._vizs.items():
         log.info(f'Forcing hard redraw -> {curve_name}')
-        hist_viz.update_graphics(force_redraw=True)
+        hist_viz.reset_graphics()
+        # hist_viz.update_graphics(force_redraw=True)
 
     async with open_sample_stream(1.) as min_istream:
         async for msg in min_istream:
@@ -248,27 +249,27 @@ async def increment_history_view(
             # - samplerd could emit the actual update range via
             #   tuple and then we only enter the below block if that
             #   range is detected as in-view?
-            match msg:
-                case {
-                    'backfilling': (viz_name, timeframe),
-                } if (
-                    viz_name == name
-                ):
-                    log.warning(
-                        f'Forcing HARD REDRAW:\n'
-                        f'name: {name}\n'
-                        f'timeframe: {timeframe}\n'
-                    )
-                    # TODO: only allow this when the data is IN VIEW!
-                    # also, we probably can do this more efficiently
-                    # / smarter by only redrawing the portion of the
-                    # path necessary?
-                    {
-                        60: hist_viz,
-                        1: viz,
-                    }[timeframe].update_graphics(
-                        force_redraw=True
-                    )
+            # match msg:
+            #     case {
+            #         'backfilling': (viz_name, timeframe),
+            #     } if (
+            #         viz_name == name
+            #     ):
+            #         log.warning(
+            #             f'Forcing HARD REDRAW:\n'
+            #             f'name: {name}\n'
+            #             f'timeframe: {timeframe}\n'
+            #         )
+            #         # TODO: only allow this when the data is IN VIEW!
+            #         # also, we probably can do this more efficiently
+            #         # / smarter by only redrawing the portion of the
+            #         # path necessary?
+            #         {
+            #             60: hist_viz,
+            #             1: viz,
+            #         }[timeframe].update_graphics(
+            #             force_redraw=True
+            #         )
 
             # check if slow chart needs an x-domain shift and/or
             # y-range resize.
@@ -309,6 +310,7 @@ async def increment_history_view(
 
 async def graphics_update_loop(
 
+    dss: dict[str, DisplayState],
     nurse: trio.Nursery,
     godwidget: GodWidget,
     feed: Feed,
@@ -349,8 +351,6 @@ async def graphics_update_loop(
         'i_last_t':  0,  # multiview-global fast (1s) step index
         'i_last_slow_t':  0,  # multiview-global slow (1m) step index
     }
-
-    dss: dict[str, DisplayState] = {}
 
     for fqme, flume in feed.flumes.items():
         ohlcv = flume.rt_shm
@@ -470,67 +470,68 @@ async def graphics_update_loop(
         if ds.hist_vars['i_last'] < ds.hist_vars['i_last_append']:
             await tractor.pause()
 
-    try:
-        # XXX TODO: we need to do _dss UPDATE here so that when
-        # a feed-view is switched you can still remote annotate the
-        # prior view..
-        from . import _remote_ctl
-        _remote_ctl._dss = dss
+    # try:
 
-        # main real-time quotes update loop
-        stream: tractor.MsgStream
-        async with feed.open_multi_stream() as stream:
-            assert stream
-            async for quotes in stream:
-                quote_period = time.time() - last_quote_s
-                quote_rate = round(
-                    1/quote_period, 1) if quote_period > 0 else float('inf')
+    # XXX TODO: we need to do _dss UPDATE here so that when
+    # a feed-view is switched you can still remote annotate the
+    # prior view..
+    from . import _remote_ctl
+    _remote_ctl._dss.update(dss)
+
+    # main real-time quotes update loop
+    stream: tractor.MsgStream
+    async with feed.open_multi_stream() as stream:
+        # assert stream
+        async for quotes in stream:
+            quote_period = time.time() - last_quote_s
+            quote_rate = round(
+                1/quote_period, 1) if quote_period > 0 else float('inf')
+            if (
+                quote_period <= 1/_quote_throttle_rate
+
+                # in the absolute worst case we shouldn't see more then
+                # twice the expected throttle rate right!?
+                # and quote_rate >= _quote_throttle_rate * 2
+                and quote_rate >= display_rate
+            ):
+                pass
+                # log.warning(f'High quote rate {mkt.fqme}: {quote_rate}')
+
+            last_quote_s: float = time.time()
+
+            for fqme, quote in quotes.items():
+                ds = dss[fqme]
+                ds.quotes = quote
+                rt_pi, hist_pi = pis[fqme]
+
+                # chart isn't active/shown so skip render cycle and
+                # pause feed(s)
                 if (
-                    quote_period <= 1/_quote_throttle_rate
-
-                    # in the absolute worst case we shouldn't see more then
-                    # twice the expected throttle rate right!?
-                    # and quote_rate >= _quote_throttle_rate * 2
-                    and quote_rate >= display_rate
+                    fast_chart.linked.isHidden()
+                    or not rt_pi.isVisible()
                 ):
-                    pass
-                    # log.warning(f'High quote rate {mkt.fqme}: {quote_rate}')
+                    print(f'{fqme} skipping update for HIDDEN CHART')
+                    fast_chart.pause_all_feeds()
+                    continue
 
-                last_quote_s = time.time()
+                ic = fast_chart.view._in_interact
+                if ic:
+                    fast_chart.pause_all_feeds()
+                    print(f'{fqme} PAUSING DURING INTERACTION')
+                    await ic.wait()
+                    fast_chart.resume_all_feeds()
 
-                for fqme, quote in quotes.items():
-                    ds = dss[fqme]
-                    ds.quotes = quote
-                    rt_pi, hist_pi = pis[fqme]
+                # sync call to update all graphics/UX components.
+                graphics_update_cycle(
+                    ds,
+                    quote,
+                )
 
-                    # chart isn't active/shown so skip render cycle and
-                    # pause feed(s)
-                    if (
-                        fast_chart.linked.isHidden()
-                        or not rt_pi.isVisible()
-                    ):
-                        print(f'{fqme} skipping update for HIDDEN CHART')
-                        fast_chart.pause_all_feeds()
-                        continue
-
-                    ic = fast_chart.view._in_interact
-                    if ic:
-                        fast_chart.pause_all_feeds()
-                        print(f'{fqme} PAUSING DURING INTERACTION')
-                        await ic.wait()
-                        fast_chart.resume_all_feeds()
-
-                    # sync call to update all graphics/UX components.
-                    graphics_update_cycle(
-                        ds,
-                        quote,
-                    )
-
-    finally:
-        # XXX: cancel any remote annotation control ctxs
-        _remote_ctl._dss = None
-        for cid, (ctx, aids) in _remote_ctl._ctxs.items():
-            await ctx.cancel()
+    # finally:
+    #     # XXX: cancel any remote annotation control ctxs
+    #     _remote_ctl._dss = None
+    #     for cid, (ctx, aids) in _remote_ctl._ctxs.items():
+    #         await ctx.cancel()
 
 
 def graphics_update_cycle(
@@ -1554,8 +1555,10 @@ async def display_symbol_data(
             )
 
             # start update loop task
+            dss: dict[str, DisplayState] = {}
             ln.start_soon(
                 graphics_update_loop,
+                dss,
                 ln,
                 godwidget,
                 feed,
@@ -1569,15 +1572,31 @@ async def display_symbol_data(
             order_ctl_fqme: str = fqmes[0]
             mode: OrderMode
             async with (
+
                 open_order_mode(
                     feed,
                     godwidget,
                     order_ctl_fqme,
                     order_mode_started,
                     loglevel=loglevel
-                ) as mode
-            ):
+                ) as mode,
 
+                # TODO: maybe have these startup sooner before
+                # order mode fully boots? but we gotta,
+                # -[ ] decouple the order mode bindings until
+                #    the mode has fully booted..
+                #    -[ ] maybe do an Event to sync?
+
+                # start input handling for ``ChartView`` input
+                # (i.e. kb + mouse handling loops)
+                rt_chart.view.open_async_input_handler(
+                    dss=dss,
+                ),
+                hist_chart.view.open_async_input_handler(
+                    dss=dss,
+                ),
+
+            ):
                 rt_linked.mode = mode
 
                 rt_viz = rt_chart.get_viz(order_ctl_fqme)

@@ -930,12 +930,7 @@ async def open_order_mode(
                     msg,
                 )
 
-        # start async input handling for chart's view
         async with (
-
-            # ``ChartView`` input async handler startup
-            chart.view.open_async_input_handler(),
-            hist_chart.view.open_async_input_handler(),
 
             # pp pane kb inputs
             open_form_input_handling(

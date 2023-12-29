@@ -23,6 +23,7 @@ from contextlib import (
     asynccontextmanager,
     ExitStack,
 )
+from functools import partial
 import time
 from typing import (
     Callable,
@@ -74,6 +75,7 @@ if TYPE_CHECKING:
     )
     from ._dataviz import Viz
     from .order_mode import OrderMode
+    from ._display import DisplayState
 
 
 log = get_logger(__name__)
@@ -102,6 +104,7 @@ async def handle_viewmode_kb_inputs(
 
     view: ChartView,
     recv_chan: trio.abc.ReceiveChannel,
+    dss: dict[str, DisplayState],
 
 ) -> None:
 
@@ -177,17 +180,42 @@ async def handle_viewmode_kb_inputs(
                     Qt.Key_P,
                 }
             ):
-                import tractor
                 feed = order_mode.feed  # noqa
                 chart = order_mode.chart  # noqa
                 viz = chart.main_viz  # noqa
                 vlm_chart = chart.linked.subplots['volume']  # noqa
                 vlm_viz = vlm_chart.main_viz  # noqa
                 dvlm_pi = vlm_chart._vizs['dolla_vlm'].plot  # noqa
+                import tractor
                 await tractor.pause()
                 view.interact_graphics_cycle()
 
-            # SEARCH MODE #
+            # FORCE graphics reset-and-render of all currently
+            # shown data `Viz`s for the current chart app.
+            if (
+                ctrl
+                and key in {
+                    Qt.Key_R,
+                }
+            ):
+                fqme: str
+                ds: DisplayState
+                for fqme, ds in dss.items():
+
+                    viz: Viz
+                    for tf, viz in {
+                        60: ds.hist_viz,
+                        1: ds.viz,
+                    }.items():
+                        # TODO: only allow this when the data is IN VIEW!
+                        # also, we probably can do this more efficiently
+                        # / smarter by only redrawing the portion of the
+                        # path necessary?
+                        viz.reset_graphics()
+
+            # ------ - ------
+            # SEARCH MODE
+            # ------ - ------
             # ctlr-<space>/<l> for "lookup", "search" -> open search tree
             if (
                 ctrl
@@ -247,8 +275,10 @@ async def handle_viewmode_kb_inputs(
                     delta=-view.def_delta,
                 )
 
-            elif key == Qt.Key_R:
-
+            elif (
+                not ctrl
+                and key == Qt.Key_R
+            ):
                 # NOTE: seems that if we don't yield a Qt render
                 # cycle then the m4 downsampled curves will show here
                 # without another reset..
@@ -431,6 +461,7 @@ async def handle_viewmode_mouse(
 
     view: ChartView,
     recv_chan: trio.abc.ReceiveChannel,
+    dss: dict[str, DisplayState],
 
 ) -> None:
 
@@ -567,6 +598,7 @@ class ChartView(ViewBox):
     @asynccontextmanager
     async def open_async_input_handler(
         self,
+        **handler_kwargs,
 
     ) -> ChartView:
 
@@ -577,14 +609,20 @@ class ChartView(ViewBox):
                     QEvent.KeyPress,
                     QEvent.KeyRelease,
                 },
-                async_handler=handle_viewmode_kb_inputs,
+                async_handler=partial(
+                    handle_viewmode_kb_inputs,
+                    **handler_kwargs,
+                ),
             ),
             _event.open_handlers(
                 [self],
                 event_types={
                     gs_mouse.GraphicsSceneMousePress,
                 },
-                async_handler=handle_viewmode_mouse,
+                async_handler=partial(
+                    handle_viewmode_mouse,
+                    **handler_kwargs,
+                ),
             ),
         ):
             yield self
