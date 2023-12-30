@@ -37,7 +37,13 @@ from typing import (
 from async_generator import aclosing
 import ib_insync as ibis
 import numpy as np
-import pendulum
+from pendulum import (
+    now,
+    from_timestamp,
+    # DateTime,
+    Duration,
+    duration as mk_duration,
+)
 import tractor
 import trio
 from trio_typing import TaskStatus
@@ -46,10 +52,9 @@ from piker.accounting import (
     MktPair,
 )
 from piker.data.validate import FeedInit
-from .._util import (
+from piker.brokers._util import (
     NoData,
     DataUnavailable,
-    SymbolNotFound,
 )
 from .api import (
     # _adhoc_futes_set,
@@ -160,13 +165,13 @@ async def open_history_client(
         head_dt: None | datetime = None
         if (
             # fx cons seem to not provide this endpoint?
+            # TODO: guard against all contract types which don't
+            # support it?
             'idealpro' not in fqme
         ):
-            try:
-                head_dt = await proxy.get_head_time(fqme=fqme)
-            except RequestError:
-                log.warning(f'Unable to get head time: {fqme} ?')
-                pass
+            head_dt: datetime | None = await proxy.maybe_get_head_time(
+                fqme=fqme
+            )
 
         async def get_hist(
             timeframe: float,
@@ -206,17 +211,26 @@ async def open_history_client(
             # could be trying to retreive bars over weekend
             if out is None:
                 log.error(f"Can't grab bars starting at {end_dt}!?!?")
-                raise NoData(
-                    f'{end_dt}',
-                    # frame_size=2000,
-                )
+                if (
+                    end_dt
+                    and head_dt
+                    and end_dt <= head_dt
+                ):
+                    raise DataUnavailable(
+                        f'First timestamp is {head_dt}\n'
+                        f'But {end_dt} was requested..'
+                    )
 
-            if (
-                end_dt
-                and head_dt
-                and end_dt <= head_dt
-            ):
-                raise DataUnavailable(f'First timestamp is {head_dt}')
+                else:
+                    raise NoData(
+                        info={
+                            'fqme': fqme,
+                            'head_dt': head_dt,
+                            'start_dt': start_dt,
+                            'end_dt': end_dt,
+                            'timedout': timedout,
+                        },
+                    )
 
             # also see return type for `get_bars()`
             bars: ibis.objects.BarDataList
@@ -249,7 +263,18 @@ async def open_history_client(
         # quite sure why.. needs some tinkering and probably
         # a lookthrough of the ``ib_insync`` machinery, for eg. maybe
         # we have to do the batch queries on the `asyncio` side?
-        yield get_hist, {'erlangs': 1, 'rate': 3}
+        yield (
+            get_hist,
+            {
+                'erlangs': 1,  # max conc reqs
+                'rate': 3,  # max req rate
+                'frame_types': {  # expected frame sizes
+                    1: mk_duration(seconds=2e3),
+                    60: mk_duration(days=2),
+                }
+
+            },
+        )
 
 
 _pacing: str = (
@@ -394,7 +419,11 @@ async def get_bars(
 
         while _failed_resets < max_failed_resets:
             try:
-                out = await proxy.bars(
+                (
+                    bars,
+                    bars_array,
+                    dt_duration,
+                ) = await proxy.bars(
                     fqme=fqme,
                     end_dt=end_dt,
                     sample_period_s=timeframe,
@@ -405,13 +434,6 @@ async def get_bars(
                     # current impl) to detect a cancel case.
                     # timeout=timeout,
                 )
-                if out is None:
-                    raise NoData(f'{end_dt}')
-
-                bars, bars_array, dt_duration = out
-
-                if bars_array is None:
-                    raise SymbolNotFound(fqme)
 
                 # not enough bars signal, likely due to venue
                 # operational gaps.
@@ -425,11 +447,16 @@ async def get_bars(
                             f'end_dt: {end_dt}\n'
                             f'duration: {dt_duration}\n'
                         )
-                        raise NoData(f'{end_dt}')
+                        result = None
+                        return None
+                        # raise NoData(
+                        #     f'{fqme}\n'
+                        #     f'end_dt:{end_dt}\n'
+                        # )
 
                     else:
                         dur_s: float = len(bars) * timeframe
-                        bars_dur = pendulum.Duration(seconds=dur_s)
+                        bars_dur = Duration(seconds=dur_s)
                         dt_dur_s: float = dt_duration.in_seconds()
                         if dur_s < dt_dur_s:
                             log.warning(
@@ -459,10 +486,10 @@ async def get_bars(
                             # continue
                             # await tractor.pause()
 
-                first_dt = pendulum.from_timestamp(
+                first_dt = from_timestamp(
                     bars[0].date.timestamp())
 
-                last_dt = pendulum.from_timestamp(
+                last_dt = from_timestamp(
                     bars[-1].date.timestamp())
 
                 time = bars_array['time']
@@ -475,6 +502,7 @@ async def get_bars(
                 if data_cs:
                     data_cs.cancel()
 
+                # NOTE: setting this is critical!
                 result = (
                     bars,  # ib native
                     bars_array,  # numpy
@@ -485,6 +513,7 @@ async def get_bars(
                 # signal data reset loop parent task
                 result_ready.set()
 
+                # NOTE: this isn't getting collected anywhere!
                 return result
 
             except RequestError as err:
@@ -510,7 +539,7 @@ async def get_bars(
                     if end_dt is not None:
                         end_dt = end_dt.subtract(days=1)
                     elif end_dt is None:
-                        end_dt = pendulum.now().subtract(days=1)
+                        end_dt = now().subtract(days=1)
 
                     log.warning(
                         f'NO DATA found ending @ {end_dt}\n'

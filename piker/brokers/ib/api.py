@@ -41,7 +41,6 @@ import time
 from typing import (
     Any,
     Callable,
-    Union,
 )
 from types import SimpleNamespace
 
@@ -312,8 +311,8 @@ class Client:
         fqme: str,
 
         # EST in ISO 8601 format is required... below is EPOCH
-        start_dt: Union[datetime, str] = "1970-01-01T00:00:00.000000-05:00",
-        end_dt: Union[datetime, str] = "",
+        start_dt: datetime | str = "1970-01-01T00:00:00.000000-05:00",
+        end_dt: datetime | str = "",
 
         # ohlc sample period in seconds
         sample_period_s: int = 1,
@@ -339,17 +338,13 @@ class Client:
             default_dt_duration,
         ) = _samplings[sample_period_s]
 
-        dt_duration: DateTime = (
+        dt_duration: Duration = (
             duration
             or default_dt_duration
         )
 
+        # TODO: maybe remove all this?
         global _enters
-        log.info(
-            f"REQUESTING {ib_duration_str}'s worth {bar_size} BARS\n"
-            f'{_enters} @ end={end_dt}"'
-        )
-
         if not end_dt:
             end_dt = ''
 
@@ -358,8 +353,8 @@ class Client:
         contract: Contract = (await self.find_contracts(fqme))[0]
         bars_kwargs.update(getattr(contract, 'bars_kwargs', {}))
 
-        bars = await self.ib.reqHistoricalDataAsync(
-            contract,
+        kwargs: dict[str, Any] = dict(
+            contract=contract,
             endDateTime=end_dt,
             formatDate=2,
 
@@ -381,17 +376,38 @@ class Client:
             # whatToShow='MIDPOINT',
             # whatToShow='TRADES',
         )
+        log.info(
+            f'REQUESTING {ib_duration_str} worth {bar_size} BARS\n'
+            f'fqme: {fqme}\n'
+            f'global _enters: {_enters}\n'
+            f'kwargs: {pformat(kwargs)}\n'
+        )
+
+        bars = await self.ib.reqHistoricalDataAsync(
+            **kwargs,
+        )
 
         # tail case if no history for range or none prior.
         if not bars:
-            # NOTE: there's 2 cases here to handle (and this should be
-            # read alongside the implementation of
-            # ``.reqHistoricalDataAsync()``):
-            # - no data is returned for the period likely due to
-            # a weekend, holiday or other non-trading period prior to
-            # ``end_dt`` which exceeds the ``duration``,
+            # NOTE: there's actually 3 cases here to handle (and
+            # this should be read alongside the implementation of
+            # `.reqHistoricalDataAsync()`):
             # - a timeout occurred in which case insync internals return
-            # an empty list thing with bars.clear()...
+            #   an empty list thing with bars.clear()...
+            # - no data exists for the period likely due to
+            #   a weekend, holiday or other non-trading period prior to
+            #   ``end_dt`` which exceeds the ``duration``,
+            # - LITERALLY this is the start of the mkt's history!
+
+
+            # sync requester for debugging empty frame cases
+            def get_hist():
+                return self.ib.reqHistoricalData(**kwargs)
+
+            assert get_hist
+            import pdbp
+            pdbp.set_trace()
+
             return [], np.empty(0), dt_duration
             # TODO: we could maybe raise ``NoData`` instead if we
             # rewrite the method in the first case? right now there's no
@@ -444,7 +460,7 @@ class Client:
                 r_bars.extend(bars)
                 bars = r_bars
 
-        nparr = bars_to_np(bars)
+        nparr: np.ndarray = bars_to_np(bars)
 
         # timestep should always be at least as large as the
         # period step.
@@ -457,9 +473,17 @@ class Client:
                 'time steps which are shorter then expected?!"'
             )
             # OOF: this will break teardown?
+            # -[ ] check if it's greenback
+            # -[ ] why tf are we leaking shm entries..
+            # -[ ] make a test on the debugging asyncio testing
+            #    branch..
             # breakpoint()
 
-        return bars, nparr, dt_duration
+        return (
+            bars,
+            nparr,
+            dt_duration,
+        )
 
     async def con_deats(
         self,
@@ -802,6 +826,23 @@ class Client:
             self._cons[str(tract.conId)] = tract
 
         return contracts
+
+    async def maybe_get_head_time(
+        self,
+        fqme: str,
+
+    ) -> datetime | None:
+        '''
+        Return the first datetime stamp for `fqme` or `None`
+        on request failure.
+
+        '''
+        try:
+            head_dt: datetime = await self.get_head_time(fqme=fqme)
+            return head_dt
+        except RequestError:
+            log.warning(f'Unable to get head time: {fqme} ?')
+            return None
 
     async def get_head_time(
         self,
@@ -1391,7 +1432,7 @@ class MethodProxy:
         self,
         pattern: str,
 
-    ) -> Union[dict[str, Any], trio.Event]:
+    ) -> dict[str, Any] | trio.Event:
 
         ev = self.event_table.get(pattern)
 

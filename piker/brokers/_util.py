@@ -50,6 +50,7 @@ class SymbolNotFound(BrokerError):
     "Symbol not found by broker search"
 
 
+# TODO: these should probably be moved to `.tsp/.data`?
 class NoData(BrokerError):
     '''
     Symbol data not permitted or no data
@@ -59,14 +60,15 @@ class NoData(BrokerError):
     def __init__(
         self,
         *args,
-        frame_size: int = 1000,
+        info: dict,
 
     ) -> None:
         super().__init__(*args)
+        self.info: dict = info
 
         # when raised, machinery can check if the backend
         # set a "frame size" for doing datetime calcs.
-        self.frame_size: int = 1000
+        # self.frame_size: int = 1000
 
 
 class DataUnavailable(BrokerError):
