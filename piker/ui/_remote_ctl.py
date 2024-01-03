@@ -50,15 +50,16 @@ from ._display import DisplayState
 from ._interaction import ChartView
 from ._editors import SelectRect
 from ._chart import ChartPlotWidget
+from ._dataviz import Viz
 
 
 log = get_logger(__name__)
 
-# NOTE: this is set by the `._display.graphics_update_loop()` once
-# all chart widgets / Viz per flume have been initialized allowing
-# for remote annotation (control) of any chart-actor's mkt feed by
-# fqme lookup Bo
-_dss: dict[str, DisplayState] | None = None
+# NOTE: this is UPDATED by the `._display.graphics_update_loop()`
+# once all chart widgets / Viz per flume have been initialized
+# allowing for remote annotation (control) of any chart-actor's mkt
+# feed by fqme lookup Bo
+_dss: dict[str, DisplayState] = {}
 
 # stash each and every client connection so that they can all
 # be cancelled on shutdown/error.
@@ -96,7 +97,7 @@ async def serve_rc_annots(
     async for msg in annot_req_stream:
         match msg:
             case {
-                'annot': 'SelectRect',
+                'cmd': 'SelectRect',
                 'fqme': fqme,
                 'timeframe': timeframe,
                 'meth': str(meth),
@@ -109,14 +110,6 @@ async def serve_rc_annots(
                     1: ds.chart,
                 }[timeframe]
                 cv: ChartView = chart.cv
-
-                # sanity
-                if timeframe == 60:
-                    assert (
-                        chart.linked.godwidget.hist_linked.chart.view
-                        is
-                        cv
-                    )
 
                 # annot type lookup from cmd
                 rect = SelectRect(
@@ -143,7 +136,8 @@ async def serve_rc_annots(
                 await annot_req_stream.send(aid)
 
             case {
-                'rm_annot': int(aid),
+                'cmd': 'remove',
+                'aid': int(aid),
             }:
                 # NOTE: this is normally entered on
                 # a client's annotation de-alloc normally
@@ -156,19 +150,29 @@ async def serve_rc_annots(
                 await annot_req_stream.send(aid)
 
             case {
+                'cmd': 'redraw',
                 'fqme': fqme,
-                'render': int(aid),
-                'viz_name': str(viz_name),
                 'timeframe': timeframe,
+
+                # TODO: maybe more fields?
+                # 'render': int(aid),
+                # 'viz_name': str(viz_name),
             }:
+            # NOTE: old match from the 60s display loop task
             # | {
             #     'backfilling': (str(viz_name), timeframe),
             # }:
-                ds: DisplayState = _dss[viz_name]
-                chart: ChartPlotWidget = {
-                    60: ds.hist_chart,
-                    1: ds.chart,
+                ds: DisplayState = _dss[fqme]
+                viz: Viz = {
+                    60: ds.hist_viz,
+                    1: ds.viz,
                 }[timeframe]
+                log.warning(
+                    f'Forcing VIZ REDRAW:\n'
+                    f'fqme: {fqme}\n'
+                    f'timeframe: {timeframe}\n'
+                )
+                viz.reset_graphics()
 
             case _:
                 log.error(
@@ -227,6 +231,18 @@ class AnnotCtl(Struct):
     # ids to their equivalent IPC msg-streams.
     _ipcs: dict[int, MsgStream] = {}
 
+    def _get_ipc(
+        self,
+        fqme: str,
+    ) -> MsgStream:
+        ipc: MsgStream = self.fqme2ipc.get(fqme)
+        if ipc is None:
+            raise SymbolNotFound(
+                'No chart (actor) seems to have mkt feed loaded?\n'
+                f'{fqme}'
+            )
+        return ipc
+
     async def add_rect(
         self,
         fqme: str,
@@ -246,16 +262,10 @@ class AnnotCtl(Struct):
         the instances `id(obj)` from the remote UI actor.
 
         '''
-        ipc: MsgStream = self.fqme2ipc.get(fqme)
-        if ipc is None:
-            raise SymbolNotFound(
-                'No chart (actor) seems to have mkt feed loaded?\n'
-                f'{fqme}'
-            )
-
+        ipc: MsgStream = self._get_ipc(fqme)
         await ipc.send({
             'fqme': fqme,
-            'annot': 'SelectRect',
+            'cmd': 'SelectRect',
             'timeframe': timeframe,
             # 'meth': str(meth),
             'meth': 'set_view_pos' if domain == 'view' else 'set_scene_pos',
@@ -288,7 +298,8 @@ class AnnotCtl(Struct):
         '''
         ipc: MsgStream = self._ipcs[aid]
         await ipc.send({
-            'rm_annot': aid,
+            'cmd': 'remove',
+            'aid': aid,
         })
         removed: bool = await ipc.receive()
         return removed
@@ -306,6 +317,19 @@ class AnnotCtl(Struct):
             yield aid
         finally:
             await self.remove(aid)
+
+    async def redraw(
+        self,
+        fqme: str,
+        timeframe: float,
+    ) -> None:
+        await self._get_ipc(fqme).send({
+            'cmd': 'redraw',
+            'fqme': fqme,
+            # 'render': int(aid),
+            # 'viz_name': str(viz_name),
+            'timeframe': timeframe,
+        })
 
     # TODO: do we even need this?
     # async def modify(
