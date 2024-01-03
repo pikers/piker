@@ -201,6 +201,7 @@ class FutesPair(Pair):
         match contype:
             case (
                 'CURRENT_QUARTER'
+                | 'CURRENT_QUARTER DELIVERING'
                 | 'NEXT_QUARTER'  # su madre binance..
             ):
                 pair, _, expiry = symbol.partition('_')
@@ -220,6 +221,10 @@ class FutesPair(Pair):
                     case ['DEFI']:
                         return 'PERP'
 
+        # wow, just wow you binance guys suck..
+        if self.status == 'PENDING_TRADING':
+            return 'PENDING'
+
         # XXX: yeah no clue then..
         raise ValueError(
             f'Bad .expiry token match: {contype} for {symbol}'
@@ -237,6 +242,7 @@ class FutesPair(Pair):
 
             case (
                 'CURRENT_QUARTER'
+                | 'CURRENT_QUARTER DELIVERING'
                 | 'NEXT_QUARTER'  # su madre binance..
             ):
                 _, _, expiry = symbol.partition('_')
@@ -249,7 +255,10 @@ class FutesPair(Pair):
                         return f'{margin}M'
 
                 match subtype:
-                    case ['DEFI']:
+                    case (
+                        ['DEFI']
+                        | ['USDC']
+                    ):
                         return f'{subtype[0]}'
 
         # XXX: yeah no clue then..
