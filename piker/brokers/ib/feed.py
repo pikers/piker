@@ -434,57 +434,53 @@ async def get_bars(
                     # current impl) to detect a cancel case.
                     # timeout=timeout,
                 )
+                # usually either a request during a venue closure
+                # or into a large (weekend) closure gap.
+                if not bars:
+                    # no data returned?
+                    log.warning(
+                        'History frame is blank?\n'
+                        f'start_dt: {start_dt}\n'
+                        f'end_dt: {end_dt}\n'
+                        f'duration: {dt_duration}\n'
+                    )
+                    # NOTE: REQUIRED to pass back value..
+                    result = None
+                    return None
 
                 # not enough bars signal, likely due to venue
                 # operational gaps.
-                # too_little: bool = False
                 if end_dt:
-                    if not bars:
-                        # no data returned?
+                    dur_s: float = len(bars) * timeframe
+                    bars_dur = Duration(seconds=dur_s)
+                    dt_dur_s: float = dt_duration.in_seconds()
+                    if dur_s < dt_dur_s:
                         log.warning(
-                            'History frame is blank?\n'
+                            'History frame is shorter then expected?\n'
                             f'start_dt: {start_dt}\n'
                             f'end_dt: {end_dt}\n'
-                            f'duration: {dt_duration}\n'
+                            f'duration: {dt_dur_s}\n'
+                            f'frame duration seconds: {dur_s}\n'
+                            f'dur diff: {dt_duration - bars_dur}\n'
                         )
-                        result = None
-                        return None
-                        # raise NoData(
-                        #     f'{fqme}\n'
-                        #     f'end_dt:{end_dt}\n'
-                        # )
-
-                    else:
-                        dur_s: float = len(bars) * timeframe
-                        bars_dur = Duration(seconds=dur_s)
-                        dt_dur_s: float = dt_duration.in_seconds()
-                        if dur_s < dt_dur_s:
-                            log.warning(
-                                'History frame is shorter then expected?\n'
-                                f'start_dt: {start_dt}\n'
-                                f'end_dt: {end_dt}\n'
-                                f'duration: {dt_dur_s}\n'
-                                f'frame duration seconds: {dur_s}\n'
-                                f'dur diff: {dt_duration - bars_dur}\n'
-                            )
-                            # NOTE: we used to try to get a minimal
-                            # set of bars by recursing but this ran
-                            # into possible infinite query loops
-                            # when logic in the `Client.bars()` dt
-                            # diffing went bad. So instead for now
-                            # we just return the
-                            # shorter-then-expected history with
-                            # a warning.
-                            # TODO: in the future it prolly makes
-                            # the most send to do venue operating
-                            # hours lookup and
-                            # timestamp-in-operating-range set
-                            # checking to know for sure if we can
-                            # safely and quickly ignore non-uniform history
-                            # frame timestamp gaps..
-                            # end_dt -= dt_duration
-                            # continue
-                            # await tractor.pause()
+                        # NOTE: we used to try to get a minimal
+                        # set of bars by recursing but this ran
+                        # into possible infinite query loops
+                        # when logic in the `Client.bars()` dt
+                        # diffing went bad. So instead for now
+                        # we just return the
+                        # shorter-then-expected history with
+                        # a warning.
+                        # TODO: in the future it prolly makes
+                        # the most send to do venue operating
+                        # hours lookup and
+                        # timestamp-in-operating-range set
+                        # checking to know for sure if we can
+                        # safely and quickly ignore non-uniform history
+                        # frame timestamp gaps..
+                        # end_dt -= dt_duration
+                        # continue
+                        # await tractor.pause()
 
                 first_dt = from_timestamp(
                     bars[0].date.timestamp())
