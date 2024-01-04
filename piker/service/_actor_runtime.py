@@ -100,7 +100,7 @@ async def open_piker_runtime(
             or [_default_reg_addr]
         )
 
-        if ems := tractor_kwargs.get('enable_modules'):
+        if ems := tractor_kwargs.pop('enable_modules', None):
             # import pdbp; pdbp.set_trace()
             enable_modules.extend(ems)
 
@@ -175,14 +175,20 @@ async def open_pikerd(
     alive underling services (see below).
 
     '''
+    # NOTE: for the root daemon we always enable the root
+    # mod set and we `list.extend()` it into wtv the
+    # caller requested.
+    # TODO: make this mod set more strict?
+    # -[ ] eventually we should be able to avoid
+    #    having the root have more then permissions to spawn other
+    #    specialized daemons I think?
+    ems: list[str] = kwargs.setdefault('enable_modules', [])
+    ems.extend(_root_modules)
+
     async with (
         open_piker_runtime(
 
             name=_root_dname,
-            # TODO: eventually we should be able to avoid
-            # having the root have more then permissions to
-            # spawn other specialized daemons I think?
-            enable_modules=_root_modules,
             loglevel=loglevel,
             debug_mode=debug_mode,
             registry_addrs=registry_addrs,
