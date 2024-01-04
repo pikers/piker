@@ -27,6 +27,7 @@ from typing import (
 )
 
 import tractor
+from tractor import Portal
 
 from ._util import (
     log,  # sub-sys logger
@@ -140,7 +141,11 @@ async def find_service(
 
     first_only: bool = True,
 
-) -> tractor.Portal | None:
+) -> (
+    Portal
+    | list[Portal]
+    | None
+):
 
     reg_addrs: list[tuple[str, int]]
     async with open_registry(
@@ -153,6 +158,9 @@ async def find_service(
         ),
     ) as reg_addrs:
         log.info(f'Scanning for service `{service_name}`')
+
+        maybe_portals: list[Portal] | Portal | None
+
         # attach to existing daemon by name if possible
         async with tractor.find_actor(
             service_name,

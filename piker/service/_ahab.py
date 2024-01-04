@@ -15,8 +15,8 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 '''
-Supervisor for ``docker`` with included async and SC wrapping
-to ensure a cancellable container lifetime system.
+Supervisor for ``docker`` with included async and SC wrapping to
+ensure a cancellable container lifetime system.
 
 '''
 from __future__ import annotations
