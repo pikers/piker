@@ -70,12 +70,18 @@ _symbol_info_translation: dict[str, str] = {
 
 
 def get_config() -> dict[str, Any]:
+    '''
+    Load our section from `piker/brokers.toml`.
 
-    conf, path = config.load()
-    section = conf.get('kraken')
-
-    if section is None:
-        log.warning(f'No config section found for kraken in {path}')
+    '''
+    conf, path = config.load(
+        conf_name='brokers',
+        touch_if_dne=True,
+    )
+    if (section := conf.get('kraken')) is None:
+        log.warning(
+            f'No config section found for kraken in {path}'
+        )
         return {}
 
     return section
