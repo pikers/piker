@@ -26,6 +26,7 @@ from contextlib import asynccontextmanager as acm
 from datetime import datetime
 from operator import itemgetter
 import itertools
+from pprint import pformat
 import time
 from typing import (
     Callable,
@@ -697,7 +698,12 @@ async def open_trade_dialog(
                 # sanity check all the mkt infos
                 for fqme, flume in feed.flumes.items():
                     mkt: MktPair = symcache.mktmaps.get(fqme) or mkt_by_fqme[fqme]
-                    assert mkt == flume.mkt
+                    if mkt != flume.mkt:
+                        diff: tuple = mkt - flume.mkt
+                        log.warning(
+                            'MktPair sig mismatch?\n'
+                            f'{pformat(diff)}'
+                        )
 
                 get_cost: Callable = getattr(
                     brokermod,
