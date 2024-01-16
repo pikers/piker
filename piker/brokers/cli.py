@@ -482,7 +482,7 @@ def search(
         ):
             return await func()
 
-    from cornerboi._debug import open_crash_handler
+    from piker.toolz import open_crash_handler
     with open_crash_handler():
         quotes = trio.run(
             main,
@@ -506,9 +506,11 @@ def search(
 @click.option('--delete', '-d', flag_value=True, help='Delete section')
 @click.pass_obj
 def brokercfg(config, section, value, delete):
-    """If invoked with no arguments, open an editor to edit broker configs file
-    or get / update an individual section.
-    """
+    '''
+    If invoked with no arguments, open an editor to edit broker
+    configs file or get / update an individual section.
+
+    '''
     from .. import config
 
     if section:

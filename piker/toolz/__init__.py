@@ -18,24 +18,12 @@
 Toolz for debug, profile and trace of the distributed runtime :surfer:
 
 '''
-from .debug import (
-    open_crash_handler,
+from tractor.devx import (
+    open_crash_handler as open_crash_handler,
 )
 from .profile import (
-    Profiler,
-    pg_profile_enabled,
-    ms_slower_then,
-    timeit,
+    Profiler as Profiler,
+    pg_profile_enabled as pg_profile_enabled,
+    ms_slower_then as ms_slower_then,
+    timeit as timeit,
 )
-
-# TODO: other mods to include?
-# - DROP .trionics, already moved into tractor
-# - move in `piker.calc`
-
-__all__: list[str] = [
-    'open_crash_handler',
-    'pg_profile_enabled',
-    'ms_slower_then',
-    'Profiler',
-    'timeit',
-]
