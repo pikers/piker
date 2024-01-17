@@ -86,9 +86,10 @@ pyqtgraph = { git = 'https://github.com/pikers/pyqtgraph.git' }
 
 # ------ - ------
 
-[tool.poetry.group.nixos]
+# nix-shell group is ui group minus pyqt5, cause we hook the system one
+[tool.poetry.group.nix-shell]
 optional=true
-[tool.poetry.group.nixos.dependencies]
+[tool.poetry.group.nix-shell.dependencies]
 fuzzywuzzy = {extras = ["speedup"], version = "^0.18.0"}
 qdarkstyle = ">=3.0.2"
 pyqtgraph = { git = 'https://github.com/pikers/pyqtgraph.git' }

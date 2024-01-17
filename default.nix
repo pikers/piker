@@ -1,10 +1,6 @@
 with (import <nixpkgs> {});
 with python311Packages;
 let
-  gccStorePath = lib.getLib gcc-unwrapped;
-  glibStorePath = lib.getLib glib;
-  libglStorePath = lib.getLib libglvnd;
-
   pyqt5StorePath = lib.getLib pyqt5;
   pyqt5SipStorePath = lib.getLib pyqt5_sip;
 in
@@ -12,46 +8,18 @@ stdenv.mkDerivation {
   name = "piker-poetry-shell-with-qt-fix";
   buildInputs = [
     # System requirements.
-    gcc-unwrapped
-    glib
-
     libsForQt5.qt5.qtbase
 
     # Python requirements.
     python311Full
     poetry-core
-    virtualenv
     pyqt5
   ];
   src = null;
   shellHook = ''
     set -e
 
-    # Allow the use of wheels.
-    SOURCE_DATE_EPOCH=$(date +%s)
-
-    GCC_STORE_PATH="${gccStorePath}/lib"
-    GLIB_STORE_PATH="${glibStorePath}/lib"
-
     QTBASE_PATH="${qt5.qtbase.bin}/lib/qt-${qt5.qtbase.version}"
-
-    READLINE_PATH="${readline}/lib"
-
-    echo "readline path:      $READLINE_PATH"
-    echo ""
-    echo "gcc store path:     $GCC_STORE_PATH"
-    echo "glib store path:    $GLIB_STORE_PATH"
-    echo ""
-    echo "qtbase path:        $QTBASE_PATH"
-
-    EXTRA_LD_PATHS=""
-    EXTRA_LD_PATHS="$EXTRA_LD_PATHS:$READLINE_PATH"
-
-    EXTRA_LD_PATHS="$EXTRA_LD_PATHS:$GCC_STORE_PATH"
-    EXTRA_LD_PATHS="$EXTRA_LD_PATHS:$GLIB_STORE_PATH"
-
-    # Augment the dynamic linker path
-    export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:$EXTRA_LD_PATHS"
 
     # Set the Qt plugin path
     # export QT_DEBUG_PLUGINS=1
