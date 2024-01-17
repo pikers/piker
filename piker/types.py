@@ -21,15 +21,16 @@ Extensions to built-in or (heavily used but 3rd party) friend-lib
 types.
 
 '''
+from __future__ import annotations
 from collections import UserList
 from pprint import (
-    pformat,
+    saferepr,
 )
 from typing import Any
 
 from msgspec import (
     msgpack,
-    Struct,
+    Struct as _Struct,
     structs,
 )
 
@@ -62,7 +63,7 @@ class DiffDump(UserList):
 
 
 class Struct(
-    Struct,
+    _Struct,
 
     # https://jcristharif.com/msgspec/structs.html#tagged-unions
     # tag='pikerstruct',
@@ -72,9 +73,27 @@ class Struct(
     A "human friendlier" (aka repl buddy) struct subtype.
 
     '''
+    def _sin_props(self) -> Iterator[
+        tuple[
+            structs.FieldIinfo,
+            str,
+            Any,
+        ]
+    ]:
+        '''
+        Iterate over all non-@property fields of this struct.
+
+        '''
+        fi: structs.FieldInfo
+        for fi in structs.fields(self):
+            key: str = fi.name
+            val: Any = getattr(self, key)
+            yield fi, key, val
+
     def to_dict(
         self,
         include_non_members: bool = True,
+
     ) -> dict:
         '''
         Like it sounds.. direct delegation to:
@@ -90,16 +109,72 @@ class Struct(
 
         # only return a dict of the struct members
         # which were provided as input, NOT anything
-        # added as `@properties`!
+        # added as type-defined `@property` methods!
         sin_props: dict = {}
-        for fi in structs.fields(self):
-            key: str = fi.name
-            sin_props[key] = asdict[key]
+        fi: structs.FieldInfo
+        for fi, k, v in self._sin_props():
+            sin_props[k] = asdict[k]
 
         return sin_props
 
-    def pformat(self) -> str:
-        return f'Struct({pformat(self.to_dict())})'
+    def pformat(
+        self,
+        field_indent: int = 2,
+        indent: int = 0,
+
+    ) -> str:
+        '''
+        Recursion-safe `pprint.pformat()` style formatting of
+        a `msgspec.Struct` for sane reading by a human using a REPL.
+
+        '''
+        # global whitespace indent
+        ws: str = ' '*indent
+
+        # field whitespace indent
+        field_ws: str = ' '*(field_indent + indent)
+
+        # qtn: str = ws + self.__class__.__qualname__
+        qtn: str = self.__class__.__qualname__
+
+        obj_str: str = ''  # accumulator
+        fi: structs.FieldInfo
+        k: str
+        v: Any
+        for fi, k, v in self._sin_props():
+
+            # TODO: how can we prefer `Literal['option1',  'option2,
+            # ..]` over .__name__ == `Literal` but still get only the
+            # latter for simple types like `str | int | None` etc..?
+            ft: type = fi.type
+            typ_name: str = getattr(ft, '__name__', str(ft))
+
+            # recurse to get sub-struct's `.pformat()` output Bo
+            if isinstance(v, Struct):
+                val_str: str =  v.pformat(
+                    indent=field_indent + indent,
+                    field_indent=indent + field_indent,
+                )
+
+            else:  # the `pprint` recursion-safe format:
+                # https://docs.python.org/3.11/library/pprint.html#pprint.saferepr
+                val_str: str = saferepr(v)
+
+            obj_str += (field_ws + f'{k}: {typ_name} = {val_str},\n')
+
+        return (
+            f'{qtn}(\n'
+            f'{obj_str}'
+            f'{ws})'
+        )
+
+    # TODO: use a pprint.PrettyPrinter instance around ONLY rendering
+    # inside a known tty?
+    # def __repr__(self) -> str:
+    #     ...
+
+    # __str__ = __repr__ = pformat
+    __repr__ = pformat
 
     def copy(
         self,
