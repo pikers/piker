@@ -358,7 +358,7 @@ class OrderMode:
         send_msg: bool = True,
         order: Order | None = None,
 
-    ) -> Dialog:
+    ) -> Dialog | None:
         '''
         Send execution order to EMS return a level line to
         represent the order on a chart.
@@ -377,6 +377,16 @@ class OrderMode:
                 'symbol': str(staged.symbol),
                 'oid': oid,
             })
+
+        if order.price <= 0:
+            log.error(
+                '*!? Invalid `Order.price <= 0` ?!*\n'
+                # TODO: make this present multi-line in object form
+                # like `ib_insync.contracts.Contract.__repr__()`
+                f'{order}\n'
+            )
+            self.cancel_orders([order.oid])
+            return None
 
         lines = self.lines_from_order(
             order,
@@ -663,7 +673,7 @@ class OrderMode:
         self,
         msg: Status,
 
-    ) -> Dialog:
+    ) -> Dialog | None:
         # NOTE: the `.order` attr **must** be set with the
         # equivalent order msg in order to be loaded.
         order = msg.req
@@ -694,12 +704,15 @@ class OrderMode:
             fqsn=fqme,
             info={},
         )
-        dialog = self.submit_order(
+        maybe_dialog: Dialog | None = self.submit_order(
             send_msg=False,
             order=order,
         )
-        assert self.dialogs[oid] == dialog
-        return dialog
+        if maybe_dialog is None:
+            return None
+
+        assert self.dialogs[oid] == maybe_dialog
+        return maybe_dialog
 
 
 @asynccontextmanager
@@ -1079,8 +1092,25 @@ async def process_trade_msg(
                     )
                 ):
                     msg.req = order
-                    dialog = mode.load_unknown_dialog_from_msg(msg)
-                    mode.on_submit(oid)
+                    dialog: (
+                        Dialog
+                        # NOTE: on an invalid order submission (eg.
+                        # price <=0) the downstream APIs may return
+                        # a null.
+                        | None
+                    ) = mode.load_unknown_dialog_from_msg(msg)
+
+                    # cancel any invalid pre-existing order!
+                    if dialog is None:
+                        log.warning(
+                            'Order was ignored/invalid?\n'
+                            f'{order}'
+                        )
+
+                    # if valid, display the order line the same as if
+                    # it was submitted during this UI session.
+                    else:
+                        mode.on_submit(oid)
 
         case Status(resp='error'):
 
