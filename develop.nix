@@ -1,5 +1,5 @@
 with (import <nixpkgs> {});
-with python310Packages;
+with python311Packages;
 stdenv.mkDerivation {
   name = "pip-env";
   buildInputs = [
@@ -7,7 +7,7 @@ stdenv.mkDerivation {
     readline
 
     # Python requirements (enough to get a virtualenv going).
-    python310Full
+    python311Full
     virtualenv
     setuptools
     pyqt5
@@ -23,10 +23,10 @@ stdenv.mkDerivation {
 
     export QT_QPA_PLATFORM_PLUGIN_PATH="${qt5.qtbase.bin}/lib/qt-${qt5.qtbase.version}/plugins";
 
-    if [ ! -d "venv" ]; then
-        virtualenv venv
+    if [ ! -d ".venv" ]; then
+        virtualenv .venv
     fi
 
-    source venv/bin/activate
+    source .venv/bin/activate
   '';
 }

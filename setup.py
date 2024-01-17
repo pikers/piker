@@ -57,7 +57,7 @@ setup(
         'rich',
 
         # async
-        'trio',
+        'trio == 0.22.2',
         'trio-websocket',
         'trio-util',
         'async_generator',
