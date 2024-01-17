@@ -32,7 +32,7 @@ ib-insync = "^0.9.86"
 msgspec = "^0.18.0"
 numba = "^0.57.1"
 numpy = "1.24"
-pendulum = "^2.1.2"
+pendulum = "^3.0.0"
 polars = "^0.18.13"
 pygments = "^2.16.1"
 python = "^3.10"
@@ -51,10 +51,14 @@ git = 'https://github.com/pikers/asyncvnc.git'
 branch = 'main'
 
 [tool.poetry.dependencies.tomlkit]
-# git = 'https://github.com/pikers/tomlkit.git',
-# branch = 'piker_pin'
-path = "../tomlkit/"
-develop = true
+git = 'https://github.com/pikers/tomlkit.git'
+branch = 'piker_pin'
+# path = "../tomlkit/"
+# develop = true
+
+[tool.poetry.dependencies.anyio-marketstore]
+git = 'https://github.com/pikers/anyio-marketstore.git'
+rev = 'poerty_switch'
 
 # ------ - ------
 
@@ -79,6 +83,15 @@ qdarkstyle = ">=3.0.2"
 pyqt5 = "^5.15.9"
 pyqtgraph = { git = 'https://github.com/pikers/pyqtgraph.git' }
 # pyqt6 = "^6.5.2"
+
+# ------ - ------
+
+[tool.poetry.group.nixos]
+optional=true
+[tool.poetry.group.nixos.dependencies]
+fuzzywuzzy = {extras = ["speedup"], version = "^0.18.0"}
+qdarkstyle = ">=3.0.2"
+pyqtgraph = { git = 'https://github.com/pikers/pyqtgraph.git' }
 
 # ------ - ------
 
