@@ -90,7 +90,7 @@ develop = true
 # path = "../tomlkit/"
 
 [tool.poetry.dependencies.tractor]
-git = 'https://github.com/goodboy/tractor.git'
+git = 'https://pikers.dev/goodboy/tractor.git'
 branch = 'asyncio_debugger_support'
 # branch = 'piker_pin'
 develop = true
@@ -108,7 +108,19 @@ rapidfuzz = "^3.2.0"
 qdarkstyle = ">=3.0.2"
 pyqt5 = "^5.15.9"
 pyqtgraph = { git = 'https://github.com/pikers/pyqtgraph.git' }
-pyqt6 = "^6.5.2"
+# pyqt6 = "^6.5.2"
+
+# ------ - ------
+
+# only diference with uis group is on nix we use some sys py packages
+[tool.poetry.group.nix-shell]
+optional = true
+[tool.poetry.group.nix-shell.dependencies]
+# rapidfuzz = "^3.2.0"
+# qdarkstyle = ">=3.0.2"
+# pyqt5 = "^5.15.9"
+pyqtgraph = { git = 'https://github.com/pikers/pyqtgraph.git' }
+# pyqt6 = "^6.5.2"
 
 # ------ - ------
 

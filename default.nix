@@ -1,46 +1,68 @@
 with (import <nixpkgs> {});
-
+with python311Packages;
+let
+  rapidfuzzStorePath = lib.getLib rapidfuzz;
+  qdarkstyleStorePath = lib.getLib qdarkstyle;
+  pyqt5StorePath = lib.getLib pyqt5;
+  pyqt5SipStorePath = lib.getLib pyqt5_sip;
+in
 stdenv.mkDerivation {
-  name = "poetry-env";
+  name = "piker-poetry-shell-with-qt-fix";
   buildInputs = [
     # System requirements.
-    readline
+    libsForQt5.qt5.qtbase
 
-    # TODO: hacky non-poetry install stuff we need to get rid of!!
-    poetry
-    # virtualenv
-    # setuptools
-    # pip
-
-    # Python requirements (enough to get a virtualenv going).
+    # Python requirements.
     python311Full
-
-    # obviously, and see below for hacked linking
-    python311Packages.pyqt5
-    python311Packages.pyqt5_sip
-    # python311Packages.qtpy
-
-    # numerics deps
-    python311Packages.levenshtein
-    python311Packages.fastparquet
-    python311Packages.polars
-
+    poetry-core
+    rapidfuzz
+    qdarkstyle
+    pyqt5
   ];
-  # environment.sessionVariables = {
-  #   LD_LIBRARY_PATH = "${pkgs.stdenv.cc.cc.lib}/lib";
-  # };
   src = null;
   shellHook = ''
-    # Allow the use of wheels.
-    SOURCE_DATE_EPOCH=$(date +%s)
+    set -e
 
-    # Augment the dynamic linker path
-    export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:${R}/lib/R/lib:${readline}/lib
-    export QT_QPA_PLATFORM_PLUGIN_PATH="${qt5.qtbase.bin}/lib/qt-${qt5.qtbase.version}/plugins";
+    QTBASE_PATH="${qt5.qtbase.bin}/lib/qt-${qt5.qtbase.version}"
 
-    if [ ! -d ".venv" ]; then
-        poetry install --with uis
+    # Set the Qt plugin path
+    # export QT_DEBUG_PLUGINS=1
+    export QT_PLUGIN_PATH="$QTBASE_PATH/plugins"
+    export QT_QPA_PLATFORM_PLUGIN_PATH="$QT_PLUGIN_PATH/platforms"
+
+    # Maybe create venv & install deps
+    poetry install --with=nix-shell
+
+    # Use pyqt5 from System, patch activate script
+    ACTIVATE_SCRIPT_PATH="$(poetry env info --path)/bin/activate"
+    export RPDFUZZ_PATH="${rapidfuzzStorePath}/lib/python3.11/site-packages"
+    export QDRKSTYLE_PATH="${qdarkstyleStorePath}/lib/python3.11/site-packages"
+    export PYQT5_PATH="${pyqt5StorePath}/lib/python3.11/site-packages"
+    export PYQT5_SIP_PATH="${pyqt5SipStorePath}/lib/python3.11/site-packages"
+    echo "rapidfuzz at:   $RPDFUZZ_PATH"
+    echo "qdarkstyle at:  $QDRKSTYLE_PATH"
+    echo "pyqt5 at:       $PYQT5_PATH"
+    echo "pyqt5-sip at:   $PYQT5_SIP_PATH"
+    echo ""
+
+    PATCH="export PYTHONPATH=\""
+
+    PATCH="$PATCH\$RPDFUZZ_PATH"
+    PATCH="$PATCH:\$QDRKSTYLE_PATH"
+    PATCH="$PATCH:\$PYQT5_PATH"
+    PATCH="$PATCH:\$PYQT5_SIP_PATH"
+
+    PATCH="$PATCH\""
+
+    if grep -q "$PATCH" "$ACTIVATE_SCRIPT_PATH"; then
+        echo "venv is already patched."
+    else
+        echo "patching $ACTIVATE_SCRIPT_PATH to use pyqt5 from nixos..."
+        sed -i "\$i$PATCH" $ACTIVATE_SCRIPT_PATH
     fi
+
+    echo "qt plguin path: $QT_PLUGIN_PATH"
+    echo ""
 
     poetry shell
   '';
