@@ -29,7 +29,7 @@ stdenv.mkDerivation {
     echo ""
 
     # Maybe create venv & install deps
-    poetry install --with=nixos
+    poetry install --with=nix-shell
 
     # Use pyqt5 from System, patch activate script
     ACTIVATE_SCRIPT_PATH="$(poetry env info --path)/bin/activate"
