@@ -3,6 +3,7 @@ with python311Packages;
 let
   rapidfuzzStorePath = lib.getLib rapidfuzz;
   qdarkstyleStorePath = lib.getLib qdarkstyle;
+  qtpyStorePath = lib.getLib qtpy;
   pyqt5StorePath = lib.getLib pyqt5;
   pyqt5SipStorePath = lib.getLib pyqt5_sip;
 in
@@ -17,6 +18,7 @@ stdenv.mkDerivation {
     poetry-core
     rapidfuzz
     qdarkstyle
+    qtpy
     pyqt5
   ];
   src = null;
@@ -37,10 +39,12 @@ stdenv.mkDerivation {
     ACTIVATE_SCRIPT_PATH="$(poetry env info --path)/bin/activate"
     export RPDFUZZ_PATH="${rapidfuzzStorePath}/lib/python3.11/site-packages"
     export QDRKSTYLE_PATH="${qdarkstyleStorePath}/lib/python3.11/site-packages"
+    export QTPY_PATH="${qtpyStorePath}/lib/python3.11/site-packages"
     export PYQT5_PATH="${pyqt5StorePath}/lib/python3.11/site-packages"
     export PYQT5_SIP_PATH="${pyqt5SipStorePath}/lib/python3.11/site-packages"
     echo "rapidfuzz at:   $RPDFUZZ_PATH"
     echo "qdarkstyle at:  $QDRKSTYLE_PATH"
+    echo "qtpy at:        $QTPY_PATH"
     echo "pyqt5 at:       $PYQT5_PATH"
     echo "pyqt5-sip at:   $PYQT5_SIP_PATH"
     echo ""
@@ -49,6 +53,7 @@ stdenv.mkDerivation {
 
     PATCH="$PATCH\$RPDFUZZ_PATH"
     PATCH="$PATCH:\$QDRKSTYLE_PATH"
+    PATCH="$PATCH:\$QTPY_PATH"
     PATCH="$PATCH:\$PYQT5_PATH"
     PATCH="$PATCH:\$PYQT5_SIP_PATH"
 

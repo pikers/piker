@@ -90,8 +90,8 @@ develop = true
 # path = "../tomlkit/"
 
 [tool.poetry.dependencies.tractor]
-git = 'https://pikers.dev/goodboy/tractor.git'
-branch = 'asyncio_debugger_support'
+git = 'https://github.com/goodboy/tractor.git'
+branch = 'multihomed'
 # branch = 'piker_pin'
 develop = true
 # path = '../tractor/'
